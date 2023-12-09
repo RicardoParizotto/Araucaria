@@ -103,6 +103,7 @@ class shim_layer:
     #this will send the packets to the replica
     def send_replay_packets(self, replay_determinants, round):
         for msg_from_coordinator in replay_determinants:
+            print("msg from coordinator" + str(msg_from_coordinator))
             if msg_from_coordinator['round'] > round:
                 for msg_in_shim in self.output_log:
                     if msg_from_coordinator['lvt'] == msg_in_shim['lvt']:
@@ -147,6 +148,7 @@ class shim_layer:
             sendp(pkt, iface=self.iface_replica, verbose=False)
         if ResistProtocol in pkt and pkt[ResistProtocol].flag == PKT_REPLAY_ACK:
             self.ACK_REPLAY = True
+            print("got the miracle")
         if ResistProtocol in pkt and pkt[ResistProtocol].flag == LAST_PACKET_RECEIVED:
             self.send_buffer()#resend packets in the app_buffer
            #release lock
