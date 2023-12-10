@@ -52,7 +52,7 @@ t_RBRACKET = r'\}'
 t_NAME    = r'@[a-z]+'
 t_COMMA   = r','
 t_DDOT    = r':'
-t_NUMBER  = r'[0-9]+'
+t_NUMBER  = r'&[0-9]+'
 t_VALUE   = r'&[a-zA-Z_0-9][a-zA-Z_0-9]*'
 
 t_ignore = ' \t'
@@ -102,8 +102,9 @@ def p_requirements(t):
 #    t[0] = t[1]
 
 def p_requirement(t):
-    '''requirement : CONS consistency
-                     | AVAIL availability'''
+    '''requirement : CONS DDOT consistency
+                     | AVAIL DDOT availability'''
+
     t[0] = {t[1] : t[2] }
 
 def p_consistency(t):
@@ -112,8 +113,13 @@ def p_consistency(t):
     t[0] = t[1]
 
 def p_availability(t):
-    'availability : NUMBER'
-    t[0] = int(t[1])
+    '''availability : HIGH
+                      | LOW'''
+
+    if (t[1] == 'high'):
+        t[0] = 4
+    else:
+        t[0] = 1
 
 def p_operation(t):
     '''operation : CREATE
@@ -129,9 +135,9 @@ def p_error(t):
 # Build the parser
 parser = yacc.yacc()
 
-gpt = "create intent @machine_learning_training { functionality : @CNN_model, availabity: 1, PRIORITY: HIGH }"
+gpt = "create intent @machine { functionality : @model [], availability: high, priority high }"
 
-s = "create intent @intentname { functionality : @teste [ @size : &3 ], consistency strong, priority high }"
+s = "create intent @intentname { functionality : @teste [ @size : &3 ], consistency: strong, priority high }"
 
 
 result = parser.parse(gpt)
