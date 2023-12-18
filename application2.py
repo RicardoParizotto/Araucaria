@@ -43,7 +43,7 @@ def main():
     starting()
 
     for i in range(1,100):
-        time.sleep(5)
+        time.sleep(0.5)
         for node_id in nodes:
             if node_id != pid:
                 random_variable = np.random.uniform(0, 1)

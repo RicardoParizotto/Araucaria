@@ -60,8 +60,8 @@ class shim_layer:
          self.pkts_per_second = [0]
          self.current_measured_second = 0
 
-         self.file_logs = open("shim_logs/"+str(self.pid)+"_log_times.txt", "a")
-         self.file_shim = open("shim_logs/"+str(self.pid)+"log.txt", "a")
+         self.file_logs = open("shim_logs/"+str(self.pid)+"_log_times.txt", "w")
+         self.file_shim = open("shim_logs/"+str(self.pid)+"log.txt", "w")
 
          self.replayDeterminants = {}
 
@@ -116,6 +116,8 @@ class shim_layer:
 
         round = self.global_virtual_round
         replay_determinants = self.determinants_buffer
+
+        replay_determinants = sorted(replay_determinants, key=lambda x: x['round'])
 
         for msg_from_coordinator in replay_determinants:
             print("msg from coordinator" + str(msg_from_coordinator))

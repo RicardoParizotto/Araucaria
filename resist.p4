@@ -221,7 +221,7 @@ control MyEgress(inout headers hdr,
 
     apply {
         if (standard_metadata.instance_type == PKT_INSTANCE_TYPE_EGRESS_CLONE) {
-            if(hdr.resist.round == 2){
+            if(hdr.resist.round == 25){
                 drop();
             }
             hdr.resist.type = PKT_FROM_MASTER_TO_REPLICA;

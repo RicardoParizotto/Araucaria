@@ -52,7 +52,7 @@ class coordinator:
         #self.nodes = {"1": "10.0.1.1", "2": "10.0.2.2", "4": "10.0.4.4", "5": "10.0.5.5"}
         #"6": "10.0.6.6", "7": "10.0.7.7", "8": "10.0.8.8"}
         self.nodes = {} #ID and destination of nodes
-        self.file_logs = open("shim_logs/coordinator_log_times.txt", "a")
+        self.file_logs = open("shim_logs/coordinator_log_times.txt", "w")
 
         self.define_nodes(size)
 

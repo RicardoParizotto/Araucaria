@@ -5,7 +5,7 @@ import subprocess
 import os
 import sys
 
-MAKEFILE_PATH = "/home/p4/tutorials/exercises/Resist-Bmv2/Makefile"
+MAKEFILE_PATH = "/home/p4/tutorials/exercises/Araucaria/Makefile"
 
 class MininetProc:
     def __init__(self, size) -> None:
@@ -19,7 +19,9 @@ class MininetProc:
 
     def run_server(self, id):
         self.proc.expect("mininet> ", timeout=None)
-        self.proc.sendline(f"h"+str(id)+" python3 application2.py "+str(id)+" "+str(self.size)+" &")
+        #ID: the process unique # IDEA:
+        #size: the total amount of processes
+        self.proc.sendline(f"h"+str(id)+" python3 application2.py "+  str(id) +" "+str(self.size)+" &")
 
     def wait(self):
         self.proc.expect("mininet> ", timeout=None)
