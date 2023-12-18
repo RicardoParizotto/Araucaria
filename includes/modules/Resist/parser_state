@@ -1,0 +1,4 @@
+state  parse_resist{
+    packet.extract(hdr.resist);
+    transition parse_ipv4;
+}

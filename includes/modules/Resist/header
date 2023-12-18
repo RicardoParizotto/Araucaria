@@ -1,0 +1,6 @@
+header resist_t {
+    bit<32>   type;
+    bit<32>   value;
+    bit<32>   pid;
+    bit<32>   round;
+}

@@ -29,7 +29,7 @@ from resist_header import *
 #add more hosts*/
 
 
-PKT_FROM_SHIM_LAYER = 0
+PKT_FROM_SHIM_LAYER = 50
 PKT_FROM_MASTER_TO_REPLICA =  1
 PKT_PING = 2
 PKT_PONG = 3

@@ -26,7 +26,7 @@ parser MyParser(packet_in packet,
         }
     }
 
-    #include "includes/modules/Resist/parser_state"
+    #include "includes/modules/Resist/header"
 
     state parse_ipv4 {
         packet.extract(hdr.ipv4);
@@ -96,110 +96,68 @@ control MyIngress(inout headers hdr,
         default_action = drop();
     }
 
-apply {
-    /*--- simulate failures by droping everything --- */
-    simulateFailure.read(meta.simulateFailure, 0);
-    if(meta.simulateFailure == 1){
-        drop();
-    } else{
-        if(hdr.ipv4.isValid()){
-            ipv4_lpm.apply();
-            if(hdr.resist.isValid()){
-                //heartbeats
-                if(hdr.resist.type == PKT_PING){
-                    hdr.resist.type = PKT_PONG;
-                    bounce_pkt();
-                }
-
-                //Collection packets (from the controller)
-                /*collection packets extract a round number and are forwarded to the coordinator*/
-                if(hdr.resist.type == PKT_COLLECT_ROUND){
+    apply {
+        /*--- simulate failures by droping everything --- */
+        simulateFailure.read(meta.simulateFailure, 0);
+        if(meta.simulateFailure == 1){
+            drop();
+        }else if(hdr.resist.type == PKT_LAST_REPLAY_ROUND){
+            lastRoundNumber.write(0, hdr.resist.round);
+            drop();
+        /*collection packets are forward back to the controller
+        /*collection packets extract a round number and are forwarded to the coordinator*/
+        }else if(hdr.resist.type == PKT_COLLECT_ROUND){
+            roundNumber.read(meta.current_round, 0);
+            hdr.resist.round = meta.current_round;
+            hdr.resist.type = PKT_EXPORT_ROUND;
+            bounce_pkt();
+        }else{
+          if(hdr.resist.isValid()){
+              //this is just heartbeating
+              if(hdr.resist.type == PKT_PING){
+                  hdr.resist.type = PKT_PONG;
+                  bounce_pkt();
+              }else{
+                //this is code for the replica only
+                if(hdr.resist.type == PKT_REPLAY_FROM_SHIM || hdr.resist.type == PKT_FROM_MASTER_TO_REPLICA ){
                     roundNumber.read(meta.current_round, 0);
-                    hdr.resist.round = meta.current_round;
-                    hdr.resist.type = PKT_EXPORT_ROUND;
-                    bounce_pkt();
-                }
-
-                //if packet is unordered (i.e, packet came from a replica)
-                if(hdr.resist.type == PKT_UNORDERED_REPLAY){ //change type. This is not unordered `replay`
-                    bounce_pkt();
-                }
-
-                if (hdr.resist.type == PKT_UNORDERED){
-                    meta.mark_to_bounce = 10;
-                }else{
-                    if(hdr.resist.type == PKT_FROM_MASTER_TO_REPLICA ){
-                        roundNumber.read(meta.current_round, 0);
-                        if(meta.current_round + 1 != hdr.resist.round){
-                            causality_violation.read(meta.causality_v_counter, 0);
-                            causality_violation.write(0, meta.causality_v_counter+1);
-                            hdr.resist.type = PKT_UNORDERED;
-                            bounce_pkt();
-                        }
-                    }
-                }
-
-                /*this are the possibilities for packet replay*/
-                if(hdr.resist.type == PKT_REPLAY_FROM_SHIM){
-                    roundNumber.read(meta.current_round, 0);
-                    if(meta.current_round + 1 != hdr.resist.round){   //this is an out of order packet
+                    if(meta.current_round + 1 != hdr.resist.round){
                         causality_violation.read(meta.causality_v_counter, 0);
                         causality_violation.write(0, meta.causality_v_counter+1);
                         hdr.resist.type = PKT_UNORDERED_REPLAY;
                         bounce_pkt();
-                    }else{
-                        /*send warning to shim layers that the replay has ended.
-                        last round number is configured by the controller */
-                        lastRoundNumber.read(meta.last_round_number, 0);
-                        if(meta.current_round + 1 == meta.last_round_number && meta.last_round_number > 0){
-                            hdr.resist.type = LAST_PACKET_RECEIVED;  //this packet also needs to be processed
-                        }
+                    }
+                    //send warning to shim layers that the replay has ended
+                    lastRoundNumber.read(meta.last_round_number, 0);
+                    if(meta.current_round == meta.last_round_number && meta.last_round_number > 0){
+                        hdr.resist.type = LAST_PACKET_RECEIVED;
+                        multicast();
                     }
                 }
-
-                /*this message is from the controller*/
-                if(hdr.resist.type == PKT_LAST_REPLAY_ROUND){
-                   lastRoundNumber.write(0, hdr.resist.round);
-                   drop();
-                }
-
-                //process the INC (last packet received and pkt replay from shim are the same thing)
-                if (hdr.resist.type == PKT_FROM_SHIM_LAYER  || hdr.resist.type == LAST_PACKET_RECEIVED || hdr.resist.type == PKT_FROM_MASTER_TO_REPLICA  || hdr.resist.type == PKT_REPLAY_FROM_SHIM){
+                /*either packet from master switch or replay None:both will process and drop the packet*/
+                if(hdr.resist.type == PKT_FROM_MASTER_TO_REPLICA || hdr.resist.type == PKT_REPLAY_FROM_SHIM){
                     roundNumber.read(meta.current_round, 0);
-                    hdr.resist.round = meta.current_round + 1;
                     roundNumber.write(0, meta.current_round + 1);
-                    /*** INC IS HERE**/
-                    //ipv4_lpm.apply();
-                }
-
-                if(hdr.resist.type == PKT_FROM_SHIM_LAYER){
-                    hdr.resist.type = PKT_FROM_SWITCH_TO_APP;
-                }
-                if(hdr.resist.type == PKT_FROM_MASTER_TO_REPLICA){
-                    drop();
-                }
-                if(hdr.resist.type == PKT_REPLAY_FROM_SHIM){
                     hdr.resist.type = PKT_REPLAY_ACK;
                     bounce_pkt();
-                }
-                if(meta.mark_to_bounce == 10){
-                    hdr.resist.type = PKT_FROM_MASTER_TO_REPLICA;
-                    bounce_pkt();
-                }
-                if(hdr.resist.type == LAST_PACKET_RECEIVED){
-                    multicast();
-                }
-            }
-        }
+                    /*INC functionality should go here*/
+                }else{
+                  if (hdr.resist.isValid() && hdr.resist.type != PKT_UNORDERED_REPLAY) {
+                      ipv4_lpm.apply();
+                  }
+                  if (hdr.resist.isValid() && hdr.resist.type == PKT_FROM_SHIM_LAYER){
+                      //data collection and export must reach this state and not others. Same for standard shim_layer packets
+                      hdr.resist.type = PKT_FROM_SWITCH_TO_APP;
+                      roundNumber.read(meta.current_round, 0);
+                      hdr.resist.round = meta.current_round + 1;
+                      roundNumber.write(0, meta.current_round + 1);
+                   }
+                 }
+              }
+          }
+       }
     }
 }
-}
-
-/*
-if (hdr.resist.isValid() && hdr.resist.type != PKT_UNORDERED_REPLAY) {
-    ipv4_lpm.apply();
-}*/
-
 
 /*************************************************************************
 ****************  E G R E S S   P R O C E S S I N G   *******************
