@@ -28,7 +28,7 @@ class MininetProc:
         x = input()
 
 
-def main(size):
+def run_experiment(size):
     mininet_proc = MininetProc(size)
     mininet_proc.run_coordinator()
 
@@ -40,4 +40,4 @@ def main(size):
 
 if __name__ == "__main__":
     size = int(sys.argv[1])
-    main(size)
+    run_experiment(size)

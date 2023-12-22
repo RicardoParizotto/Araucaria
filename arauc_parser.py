@@ -9,7 +9,7 @@ def p_intent(t):
     intent_name = t[3].strip()
     predicate = t[5]
     print(f"Operation: {operator}, Intent Name: {intent_name}, Predicate:{predicate}")
-    t[0] = {"Operation": {operator}, "Name" : intent_name, "Predicate": predicate}
+    t[0] = {"Operation": operator, "Name" : intent_name, "Predicate": predicate}
 
 
 def p_predicates(t):
@@ -18,12 +18,19 @@ def p_predicates(t):
 
 def p_functionality(t):
     'functionality : FUNCTIONALITY DDOT NAME LCOLCH inputs RCOLCH'
-    t[0] = t[3]
+    t[0] = {'name': t[3], 'input': t[5]}
 
 def p_inputs(t):
     '''inputs : input COMMA inputs
                 | input
                 | empty '''
+    try:
+        if t[2] == ",":
+            t[0] = t[3].append(t[1])    #i did not test this
+    except:
+        print("teste")
+        t[0] = t[1]
+    print(t[1])
 
 def p_empty(p):
     'empty :'
@@ -31,6 +38,8 @@ def p_empty(p):
 
 def p_input(t):
     'input : NAME DDOT VALUE'
+    t[0] = {t[1] : t[3] }
+    print(t[1])
 
 def p_priority(t):
     '''priority : PRIORITY HIGH
