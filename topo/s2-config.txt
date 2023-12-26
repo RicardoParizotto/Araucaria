@@ -1,0 +1,1 @@
+mirroring add 500 1000

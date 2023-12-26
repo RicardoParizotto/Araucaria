@@ -152,7 +152,8 @@
     "switches": {
         "s1": { "runtime_json" : "topo/s1-runtime.json",
             "cli_input": "topo/s1-config.txt"},
-        "s2": { "runtime_json" : "topo/s2-runtime.json" }
+        "s2": { "runtime_json" : "topo/s2-runtime.json",
+            "cli_input": "topo/s2-config.txt"}
     },
     "links": [
         ["h1", "s1-p1"], ["h2", "s1-p2"],["s1-p3", "s2-p3"],

@@ -1,9 +1,12 @@
 const bit<16> TYPE_IPV4 = 0x800;
 const bit<16> TYPE_RES = 0x600;
+const bit<8> RECIRC_FL_1 = 3;
+
 
 #define PKT_INSTANCE_TYPE_NORMAL 0
 #define PKT_INSTANCE_TYPE_INGRESS_CLONE 1
 #define PKT_INSTANCE_TYPE_EGRESS_CLONE 2
+
 
 #define PKT_FROM_SHIM_LAYER 50
 #define PKT_FROM_MASTER_TO_REPLICA 1
@@ -18,6 +21,7 @@ const bit<16> TYPE_RES = 0x600;
 #define LAST_PACKET_RECEIVED 13
 #define PKT_REPLAY_ACK 20
 #define PKT_UNORDERED 21
+#define PKT_APP_ACK 22
 
 /*************************************************************************
 *********************** H E A D E R S  ***********************************
@@ -56,6 +60,8 @@ struct metadata {
     bit<32> causality_v_counter;
     bit<32> last_round_number;
     bit<32> mark_to_bounce;
+    @field_list(RECIRC_FL_1)   //this is just an example. Metadata port should be preserved after recirculate
+    bit<32> port;
 }
 
 struct headers {

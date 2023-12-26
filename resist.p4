@@ -4,6 +4,9 @@
 
 #include "includes/headers.p4"
 
+//#define DROP_REPLICATION_EXPERIMENT false
+
+
 /*************************************************************************
 *********************** P A R S E R  ***********************************
 *************************************************************************/
@@ -82,6 +85,13 @@ control MyIngress(inout headers hdr,
         hdr.ethernet.dstAddr = dstAddr;
         hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
     }
+
+    action clone_packet_ingress() {
+        const bit<32> REPORT_MIRROR_SESSION_ID_2 = 1;
+        // Clone from ingress to egress pipeline
+        clone(CloneType.I2E, REPORT_MIRROR_SESSION_ID_2);
+    }
+
 
     table ipv4_lpm {
         key = {
@@ -213,6 +223,23 @@ control MyEgress(inout headers hdr,
         mark_to_drop(standard_metadata);
     }
 
+    action bounce_pkt() {
+        standard_metadata.egress_spec = standard_metadata.ingress_port;
+
+        bit<48> tmpEth = hdr.ethernet.dstAddr;
+        hdr.ethernet.dstAddr = hdr.ethernet.srcAddr;
+        hdr.ethernet.srcAddr = tmpEth;
+
+        bit<32> tmpIp = hdr.ipv4.dstAddr;
+        hdr.ipv4.dstAddr = hdr.ipv4.srcAddr;
+        hdr.ipv4.srcAddr = tmpIp;
+    }
+
+    action recirculate_packet() {
+        // Send again the packet through both pipelines
+        recirculate_preserving_field_list(RECIRC_FL_1);
+    }
+
     action clone_packet() {
         const bit<32> REPORT_MIRROR_SESSION_ID = 500;
         // Clone from ingress to egress pipeline
@@ -220,14 +247,25 @@ control MyEgress(inout headers hdr,
     }
 
     apply {
-        if (standard_metadata.instance_type == PKT_INSTANCE_TYPE_EGRESS_CLONE) {
-            if(hdr.resist.round == 25){
+        //packet was cloned and will be an ack. Go again to the ingress to set correct ports
+        if (standard_metadata.instance_type == PKT_INSTANCE_TYPE_EGRESS_CLONE && hdr.resist.type==PKT_FROM_MASTER_TO_REPLICA ){
+            hdr.resist.type = PKT_APP_ACK;
+            bounce_pkt();
+            recirculate_packet();
+        //packet that will be forwarded to the replica
+        }else if (standard_metadata.instance_type == PKT_INSTANCE_TYPE_EGRESS_CLONE) {
+
+            #ifdef DROP_REPLICATION_EXPERIMENT
+            if(hdr.resist.round == 20){
                 drop();
             }
+            #endif
+
             hdr.resist.type = PKT_FROM_MASTER_TO_REPLICA;
+            clone_packet();
         }else{
           if(hdr.resist.isValid() && hdr.resist.type==PKT_FROM_SWITCH_TO_APP){
-              clone_packet();
+              clone_packet();   //original packet will be forwarded to the destination
           }
        }
     }
