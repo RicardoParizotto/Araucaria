@@ -145,6 +145,7 @@ class shim_layer:
 
         print(max(replay_determinants, key=lambda x: x['round']))
         if (round >= max(replay_determinants, key=lambda x: x['round'])['round']):
+            self.file_logs.write("NORMAL PACKETS AGAIN, :"+str(time.time()) + "\n")
             self.application_send_messages_semaphor.release()
             self.sniffer_ready.set() #just in case the replica received the packet but the ack was not sent to the servers
             print("releasing")
