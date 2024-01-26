@@ -40,6 +40,7 @@ PKT_COLLECT_ROUND = 10
 PKT_EXPORT_ROUND = 11
 PKT_LAST_REPLAY_ROUND = 12
 
+REQUEST_SPLIT_DATA = 61
 
 class coordinator:
     def __init__(self, size):
@@ -55,8 +56,11 @@ class coordinator:
         self.file_logs = open("shim_logs/coordinator_log_times.txt", "w")
 
         self.define_nodes(size)
+        self.event_collection_done = threading.Event()
+        self.switch_collection_done = threading.Event()
 
         self.inputPerNode = {}
+        self.inputPerNodeSplited = {}
         self.collectCounter = 0 #variable for controlling the number of nodes that answered with collection
         self.replayInput = {}
         #self.nu_until_collect = #threading.Lock()
@@ -95,10 +99,17 @@ class coordinator:
         sendp(pkt, iface=self.iface, verbose=False)
 
 
+        print("barbaridade")
+
+        self.event_collection_done.wait()
+        self.switch_collection_done.wait()
 
         #---after all the nodes answer and the round is collected follow to the aggregation
-        while (self.collectCounter < len(self.nodes) and self.safe_round_number < 0):
-            time.sleep(0.1)
+        #while (self.collectCounter < len(self.nodes) and self.safe_round_number < 0):
+        #    time.sleep(0.1)
+        #print(self.collectCounter)
+
+        print("do not start aggregat but i collectcounter is ok")
             #this is not how it should be done
         self.aggregateAndComputeState()
         #send packet telling the switch what is the last round number
@@ -120,13 +131,16 @@ class coordinator:
                     if msg['round'] > self.max_round:
                         self.max_round = msg['round']
 
+        print("aggregating")
         #send info for all the self.nodes regarding the aggregated information
         for node in self.replayInput.keys():
-            #print(self.replayInput[node])
-            pkt =  Ether(src=get_if_hwaddr(self.iface), dst='ff:ff:ff:ff:ff:ff')
+            print(self.replayInput[node])
+            pkt =  Ether(src=get_if_hwaddr(self.iface), dst='ff:ff:ff:ff:ff:ff', type=TYPE_RES)
             pkt =  pkt / ResistProtocol(flag=REPLAY_DATA, round=self.safe_round_number) / IP(dst= self.nodes[str(node)])
             pkt = pkt / Raw(load=str(self.replayInput[node]))
             sendp(pkt, iface=self.iface, verbose=False)
+
+        print("aggregated")
         self.file_logs.write("ENDS_AGGREGATION:"+str(time.time()) + "\n" )
         self.file_logs.flush()
 
@@ -143,10 +157,30 @@ class coordinator:
             sys.stdout.flush()
         if ResistProtocol in pkt and pkt[ResistProtocol].flag == REPORT_DATA:
             if Raw in pkt:
-                self.inputPerNode[pkt[ResistProtocol].pid] = eval(pkt[Raw].load)
-                self.collectCounter = self.collectCounter + 1
+                rcv_data = eval(pkt[Raw].load)
+                try:
+                    self.inputPerNodeSplited[pkt[ResistProtocol].pid] = self.inputPerNodeSplited[pkt[ResistProtocol].pid] + rcv_data["fragment"]
+                     #concatenate to local data the fragment of determinants
+                except KeyError:
+                    self.inputPerNodeSplited[pkt[ResistProtocol].pid] = rcv_data["fragment"]
+
+                pkt.show2()
+                if int(rcv_data["index"]) == int(pkt[ResistProtocol].round) - 1:  #this is the last fragment
+                    #this should increase only after all fragments are received
+                    self.inputPerNode[pkt[ResistProtocol].pid] = eval(self.inputPerNodeSplited[pkt[ResistProtocol].pid]) #converts string into determinants
+                    print(self.inputPerNode[pkt[ResistProtocol].pid])
+                    self.collectCounter = self.collectCounter + 1  #count as transmission finished
+                    if self.collectCounter == len(self.nodes):
+                        self.event_collection_done.set()
+                else: #request the remainder data
+                    pkt_reply =  Ether(src=get_if_hwaddr(self.iface), dst='ff:ff:ff:ff:ff:ff', type=TYPE_RES)
+                    pkt_reply =  pkt_reply / ResistProtocol(flag=REQUEST_SPLIT_DATA) / IP(dst= self.nodes[str(pkt[ResistProtocol].pid)])
+                    print(self.nodes[str(pkt[ResistProtocol].pid)])
+                    sendp(pkt_reply, iface=self.iface, verbose=False)
+
         if ResistProtocol in pkt and pkt[ResistProtocol].flag == PKT_EXPORT_ROUND:
             self.safe_round_number = int(pkt[ResistProtocol].round)
+            self.switch_collection_done.set()
 
     def heartbeating(self):
         while True:

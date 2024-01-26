@@ -4,7 +4,7 @@
 
 #include "includes/headers.p4"
 
-//#define DROP_REPLICATION_EXPERIMENT false
+#define DROP_REPLICATION_EXPERIMENT false
 
 
 /*************************************************************************
