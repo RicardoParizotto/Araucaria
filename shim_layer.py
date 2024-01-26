@@ -61,7 +61,6 @@ class shim_layer:
          self.application_send_messages_semaphor = threading.Semaphore(1)   #this semaphore is to allow only one thing to happen: either send normal messages, or replay
          self.sniffer_ready = threading.Event()   #this is for signaling an ack for the application receive
 
-
          self.pkts_per_second = [0]
          self.current_measured_second = 0
 
@@ -82,21 +81,59 @@ class shim_layer:
          self.send_replay_packets = threading.Thread(target=self.send_replay_packets, args=())
          self.send_replay_packets.start()
 
-         #TODO: need to communicate with the controller or keep more state in the switch. Currently doing it without coordinatorAdress
+         #TODO: need to communicate with the controller or keep more state in the switch.
+         #Currently doing it without coordination. May lead to inconsistencies
          self.garbageCollectorThread = threading.Thread(target=self.garbage_collector, args=())
          self.garbageCollectorThread.start()
 
-    #probably you want to comment this function if testing with orphan-packets. Often, 5 packets are not enough.
+         #TODO: correctly communicate determinants
+         self.connectionCoordinator = threading.Thread(target=self.coordinator_determinants, args=())
+
+
+    def coordinator_determinants(self):
+        # Create a TCP/IP socket
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        # Connect the socket to the port where the server is listening
+        server_address = ('10.0.3.3', 10000)
+        print('connecting to {} port {}'.format(*server_address))
+        sock.connect(server_address)
+
+        try:
+            # Send raw determinants for pre-processing in the coordinator
+            message = str(self.input_log)
+            print('sending {!r}'.format(message))
+            sock.sendall(message)
+
+            #receive determinants
+            while true:
+                data = sock.recv(1024)
+                if not data:
+                    break
+
+            rcv_determinants = eval(data)
+            print("packet replay")
+            print(rcv_determinants)
+            self.iface = self.iface_replica
+            self.file_logs.write("CHANGE INTERFACE, :"+str(time.time()) + "\n")
+            # process the information received to replay it
+            #shared variables
+            self.global_virtual_round = rcv_determinants["round"]
+            self.determinants_buffer = rcv_determinants["determinants"]
+            self.shim_layer_state = "Replay"
+        finally:
+            print('closing socket')
+            sock.close()
+
+    #probably you want to comment this function if testing with orphan-packets. Often in this case you need more.5 packets are not enough.
     def garbage_collector(self):
         while(True):
             time.sleep(2)
             if len(self.output_log) > 15:
-                # Keep the last 5 elements and discard the rest
+                # Keep the last 5 elements and discard the rest. I am doing this because otherwise it would crash because of msg size
                 self.application_send_messages_semaphor.acquire()
                 self.output_log[:] = sorted(self.output_log, key=lambda x: x['lvt'])[-5:]
                 self.input_log[:] = sorted(self.input_log, key=lambda x: x['round'])[-5:]
                 self.application_send_messages_semaphor.release()
-
 
     def tick_seconds(self):
         while(True):
@@ -138,16 +175,16 @@ class shim_layer:
 
         round = self.global_virtual_round
         replay_determinants = self.determinants_buffer
-
-        #this condition is to release processes in case the replay does not need to replay anything.
-
         replay_determinants = sorted(replay_determinants, key=lambda x: x['round'])
 
         print(max(replay_determinants, key=lambda x: x['round']))
+
+        #this condition is to release processes in case the replay does not need to replay anything.
+        #case with NO ORPHAN PACKETS
         if (round >= max(replay_determinants, key=lambda x: x['round'])['round']):
             self.file_logs.write("NORMAL PACKETS AGAIN, :"+str(time.time()) + "\n")
             self.application_send_messages_semaphor.release()
-            self.sniffer_ready.set() #just in case the replica received the packet but the ack was not sent to the servers
+            self.sniffer_ready.set() #just in case the replica received the packet but the ack was not sent to the servers.
             print("releasing")
         else:
             for msg_from_coordinator in replay_determinants:
@@ -159,7 +196,6 @@ class shim_layer:
                         if msg_from_coordinator['lvt'] == msg_in_shim['lvt']:
                             self.replay_semaphor.acquire()
                             print("replay round" +  str(msg_from_coordinator['round']))
-
                             pkt =  Ether(src=get_if_hwaddr(self.iface), dst='ff:ff:ff:ff:ff:ff', type=TYPE_RES)
                             pkt = pkt / ResistProtocol(flag=PKT_REPLAY_FROM_SHIM, pid = self.pid, value= msg_in_shim['lvt'], round=msg_from_coordinator['round'])
                             pkt = pkt / IP(dst="10.0.1.1") / TCP(dport=1234, sport=random.randint(49152,65535))
@@ -169,21 +205,19 @@ class shim_layer:
 
     def handle_pkt(self, pkt):
         #data being request by the cooordinator?
-        if ResistProtocol in pkt and pkt[ResistProtocol].flag == REPLAY_DATA:
-            print("packet replay-- on round %d" % (pkt[ResistProtocol].round))
-            print(eval(pkt[Raw].load))
-            self.iface = self.iface_replica
-            self.file_logs.write("CHANGE INTERFACE, :"+str(time.time()) + "\n")
+        #if ResistProtocol in pkt and pkt[ResistProtocol].flag == REPLAY_DATA:
+        #    print("packet replay-- on round %d" % (pkt[ResistProtocol].round))
+        #    print(eval(pkt[Raw].load))
+        #    self.iface = self.iface_replica
+        #    self.file_logs.write("CHANGE INTERFACE, :"+str(time.time()) + "\n")
             # process the information received to replay it
             #-----because switches can send unordered packets back, we need something to receive and
             #send unordered packets again to the switch
+            #shared variables
+        #    self.global_virtual_round = pkt[ResistProtocol].round
+        #    self.determinants_buffer = eval(pkt[Raw].load)
+        #    self.shim_layer_state = "Replay"
 
-            self.global_virtual_round = pkt[ResistProtocol].round
-            self.determinants_buffer = eval(pkt[Raw].load)
-            self.shim_layer_state = "Replay"
-
-            #self.send_replay_packets(replay_determinants=eval(pkt[Raw].load), round=pkt[ResistProtocol].round) l
-            #packet unordered in the switch. Send it back
         if ResistProtocol in pkt and pkt[ResistProtocol].flag == PKT_UNORDERED_REPLAY:
             self.file_shim.write("Unordered"+str(pkt[ResistProtocol].round)+"\n")
             #pkt.show2()
@@ -193,21 +227,19 @@ class shim_layer:
             print("replay_unordered")
         if ResistProtocol in pkt and pkt[ResistProtocol].flag == REQUEST_DATA:
             #this is the case the switch failed, and the coordinator is asking for information to recover
-            #lock application
-            #self.lockApplicationProcess = LOCKED
+            #lock application requests
             self.application_send_messages_semaphor.acquire()   #does not allow send thread to acquire a semaphore. Only releases after recovery
-            pkt =  Ether(src=get_if_hwaddr(self.iface_replica), dst='ff:ff:ff:ff:ff:ff', type=TYPE_RES)
-            pkt = pkt / ResistProtocol(flag=REPORT_DATA, pid = self.pid) / IP(dst=coordinatorAdress)
+            self.connectionCoordinator.start()
+            #pkt =  Ether(src=get_if_hwaddr(self.iface_replica), dst='ff:ff:ff:ff:ff:ff', type=TYPE_RES)
+            #pkt = pkt / ResistProtocol(flag=REPORT_DATA, pid = self.pid) / IP(dst=coordinatorAdress)
             #send packet to the coordinator
-            pkt = pkt / Raw(load=str(self.input_log))
-            sendp(pkt, iface=self.iface_replica, verbose=False)
+            #pkt = pkt / Raw(load=str(self.input_log))
+            #sendp(pkt, iface=self.iface_replica, verbose=False)
         if ResistProtocol in pkt and pkt[ResistProtocol].flag == PKT_REPLAY_ACK:
-            self.replay_semaphor.release()
+            self.replay_semaphor.release() #allows replay to proceed
             print("got the ack")
         if ResistProtocol in pkt and pkt[ResistProtocol].flag == LAST_PACKET_RECEIVED:
-            #self.send_buffer()#resend packets in the app_buffer
             #release lock
-            #self.lockApplicationProcess = UNLOCKED
             self.application_send_messages_semaphor.release()
             self.file_logs.write("NORMAL PACKETS AGAIN, :"+str(time.time()) + "\n")
             #self.ACK_REPLAY = True
@@ -221,12 +253,12 @@ class shim_layer:
             self.input_log.append({"lvt":pkt[ResistProtocol].value, "round": pkt[ResistProtocol].round, "pid": pkt[ResistProtocol].pid})
             #print(self.input_log)
     # old function
-    def send_buffer(self):
-        self.file_logs.write("BUFFER PACKETS, :"+str(time.time()) + "\n")
-        for pkt in self.app_buffer:
-            sendp(pkt, iface=self.iface, verbose=False)
-            self.app_buffer.remove(pkt)
-            self.pkts_per_second[self.current_measured_second] = self.pkts_per_second[self.current_measured_second] + 1
+    #def send_buffer(self):
+    #    self.file_logs.write("BUFFER PACKETS, :"+str(time.time()) + "\n")
+    #    for pkt in self.app_buffer:
+    #        sendp(pkt, iface=self.iface, verbose=False)
+    #        self.app_buffer.remove(pkt)
+    #        self.pkts_per_second[self.current_measured_second] = self.pkts_per_second[self.current_measured_second] + 1
 
     def app_interface_send(self, addr, src, input):
         pkt =  Ether(src=get_if_hwaddr(self.iface), dst='ff:ff:ff:ff:ff:ff', type=TYPE_RES)
@@ -239,15 +271,3 @@ class shim_layer:
         self.pkts_per_second[self.current_measured_second] = self.pkts_per_second[self.current_measured_second] + 1
         self.clock_tick()
         self.application_send_messages_semaphor.release()
-
-
-
-    #TODO: send everything using this method
-
-    #def send(self, addr, input):
-    #    self.output_log.append({"lvt":self.clock_tick(), "data": input})
-    #    print("sending on interface %s to %s" % (self.iface, str(addr)))
-    #    pkt =  Ether(src=get_if_hwaddr(self.iface), dst='ff:ff:ff:ff:ff:ff', type=TYPE_RES)
-    #    pkt = pkt / ResistProtocol(flag=PKT_FROM_SHIM_LAYER, pid = self.pid, value=self.clock) / IP(dst=addr) / TCP(dport=1234, sport=random.randint(49152,65535)) / input
-    #    #pkt.show2()
-    #    sendp(pkt, iface=self.iface, verbose=False)
