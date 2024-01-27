@@ -41,6 +41,7 @@ PKT_EXPORT_ROUND = 11
 PKT_LAST_REPLAY_ROUND = 12
 
 REQUEST_SPLIT_DATA = 61
+REQUEST_SPLIT_CONTROL = 62
 
 class coordinator:
     def __init__(self, size):
@@ -54,6 +55,9 @@ class coordinator:
         #"6": "10.0.6.6", "7": "10.0.7.7", "8": "10.0.8.8"}
         self.nodes = {} #ID and destination of nodes
         self.file_logs = open("shim_logs/coordinator_log_times.txt", "w")
+
+        self.determinants_splitted = {}
+        self.index_determinants_splitted = {}
 
         self.define_nodes(size)
         self.event_collection_done = threading.Event()
@@ -98,24 +102,25 @@ class coordinator:
         pkt =  pkt / ResistProtocol(flag=PKT_COLLECT_ROUND) / IP(dst= "10.0.1.1")
         sendp(pkt, iface=self.iface, verbose=False)
 
-
-        print("barbaridade")
-
         self.event_collection_done.wait()
         self.switch_collection_done.wait()
 
-        #---after all the nodes answer and the round is collected follow to the aggregation
-        #while (self.collectCounter < len(self.nodes) and self.safe_round_number < 0):
-        #    time.sleep(0.1)
-        #print(self.collectCounter)
-
-        print("do not start aggregat but i collectcounter is ok")
-            #this is not how it should be done
         self.aggregateAndComputeState()
         #send packet telling the switch what is the last round number
         pkt =  Ether(src=get_if_hwaddr(self.iface), dst='ff:ff:ff:ff:ff:ff')
         pkt =  pkt / ResistProtocol(flag=PKT_LAST_REPLAY_ROUND, round=self.max_round) / IP(dst= "10.0.1.1")
         sendp(pkt, iface=self.iface, verbose=False)
+
+    #this splits our local determinants
+    #used before sending to the coordinator to avoid sending large strings that can not fit the link
+    def split_determinants(self, determinants_string, node):
+        self.determinants_splitted[node] = []
+        while len(determinants_string) > 100:
+            self.determinants_splitted[node].append(determinants_string[0:99])
+            determinants_string = determinants_string[99:]
+        if(len(determinants_string) > 0):
+            self.determinants_splitted[node].append(determinants_string)
+        self.index_determinants_splitted[node] = 0
 
     def aggregateAndComputeState(self):
         self.max_round = 0
@@ -134,12 +139,13 @@ class coordinator:
         print("aggregating")
         #send info for all the self.nodes regarding the aggregated information
         for node in self.replayInput.keys():
-            print(self.replayInput[node])
+            #print(self.replayInput[node])
+            self.split_determinants(str(self.replayInput[node]), node)
             pkt =  Ether(src=get_if_hwaddr(self.iface), dst='ff:ff:ff:ff:ff:ff', type=TYPE_RES)
-            pkt =  pkt / ResistProtocol(flag=REPLAY_DATA, round=self.safe_round_number) / IP(dst= self.nodes[str(node)])
-            pkt = pkt / Raw(load=str(self.replayInput[node]))
+            pkt =  pkt / ResistProtocol(flag=REPLAY_DATA, round=self.safe_round_number, pid=len(self.determinants_splitted[node])) / IP(dst= self.nodes[str(node)])
+            pkt = pkt / Raw(load=str({"index": self.index_determinants_splitted[node], "fragment": self.determinants_splitted[node][self.index_determinants_splitted[node]]}))
             sendp(pkt, iface=self.iface, verbose=False)
-
+            self.index_determinants_splitted[node] = self.index_determinants_splitted[node] + 1
         print("aggregated")
         self.file_logs.write("ENDS_AGGREGATION:"+str(time.time()) + "\n" )
         self.file_logs.flush()
@@ -155,16 +161,23 @@ class coordinator:
             print("pong")
             self.master_alive = True
             sys.stdout.flush()
+        if ResistProtocol in pkt and pkt[ResistProtocol].flag == REQUEST_SPLIT_CONTROL:
+            pid = pkt[ResistProtocol].pid
+            pkt2 =  Ether(src=get_if_hwaddr(self.iface), dst='ff:ff:ff:ff:ff:ff', type=TYPE_RES)
+            pkt2 = pkt2 / ResistProtocol(flag=REPLAY_DATA, pid = len(self.determinants_splitted[pid]), round = self.safe_round_number) / IP(dst=self.nodes[str(pid)])
+            pkt2 = pkt2 / Raw(load=str({"index": self.index_determinants_splitted[pid], "fragment": self.determinants_splitted[pid][self.index_determinants_splitted[pid]]}))
+            self.index_determinants_splitted[pid] = self.index_determinants_splitted[pid] + 1
+            #pkt2.show2()
+            sendp(pkt2, iface=self.iface, verbose=False)
         if ResistProtocol in pkt and pkt[ResistProtocol].flag == REPORT_DATA:
             if Raw in pkt:
                 rcv_data = eval(pkt[Raw].load)
+                #print(rcv_data)
                 try:
                     self.inputPerNodeSplited[pkt[ResistProtocol].pid] = self.inputPerNodeSplited[pkt[ResistProtocol].pid] + rcv_data["fragment"]
                      #concatenate to local data the fragment of determinants
                 except KeyError:
                     self.inputPerNodeSplited[pkt[ResistProtocol].pid] = rcv_data["fragment"]
-
-                pkt.show2()
                 if int(rcv_data["index"]) == int(pkt[ResistProtocol].round) - 1:  #this is the last fragment
                     #this should increase only after all fragments are received
                     self.inputPerNode[pkt[ResistProtocol].pid] = eval(self.inputPerNodeSplited[pkt[ResistProtocol].pid]) #converts string into determinants
@@ -176,6 +189,7 @@ class coordinator:
                     pkt_reply =  Ether(src=get_if_hwaddr(self.iface), dst='ff:ff:ff:ff:ff:ff', type=TYPE_RES)
                     pkt_reply =  pkt_reply / ResistProtocol(flag=REQUEST_SPLIT_DATA) / IP(dst= self.nodes[str(pkt[ResistProtocol].pid)])
                     print(self.nodes[str(pkt[ResistProtocol].pid)])
+                    pkt_reply.show2()
                     sendp(pkt_reply, iface=self.iface, verbose=False)
 
         if ResistProtocol in pkt and pkt[ResistProtocol].flag == PKT_EXPORT_ROUND:

@@ -27,6 +27,7 @@ PKT_PING = 2
 PKT_PONG = 3
 REQUEST_DATA = 4
 REQUEST_SPLIT_DATA = 61
+REQUEST_SPLIT_CONTROL = 62
 REPORT_DATA = 5
 REPLAY_DATA = 6
 PKT_FROM_SWITCH_TO_APP = 7
@@ -52,6 +53,8 @@ class shim_layer:
          self.get_if()
          self.lockApplicationProcess = UNLOCKED
          self.app_buffer = []
+
+         self.received_determinants_for_replay = ""
 
          self.local_determinants = []          #determinants splitted into different elements of a list
          self.local_determinants_index = 0     #current element of list being forwarded to the coordinator
@@ -156,7 +159,7 @@ class shim_layer:
                 if msg_from_coordinator['round'] > round:
                     print(msg_from_coordinator['round'])
                     for msg_in_shim in self.output_log:
-                        print(msg_in_shim)
+                        #print(msg_in_shim)
                         if msg_from_coordinator['lvt'] == msg_in_shim['lvt']:
                             self.replay_semaphor.acquire()
                             print("replay round" +  str(msg_from_coordinator['round']))
@@ -176,30 +179,34 @@ class shim_layer:
         if(len(determinants_string) > 0):
             self.local_determinants.append(determinants_string)
 
-
     def handle_pkt(self, pkt):
         #data being request by the cooordinator?
         if ResistProtocol in pkt and pkt[ResistProtocol].flag == REPLAY_DATA:
-            print("packet replay-- on round %d" % (pkt[ResistProtocol].round))
-            print(eval(pkt[Raw].load))
-            self.iface = self.iface_replica
-            self.file_logs.write("CHANGE INTERFACE, :"+str(time.time()) + "\n")
-            # process the information received to replay it
-            #-----because switches can send unordered packets back, we need something to receive and
-            #send unordered packets again to the switch
-            self.global_virtual_round = pkt[ResistProtocol].round
-            self.determinants_buffer = eval(pkt[Raw].load)
-            self.shim_layer_state = "Replay"
+            #print("packet replay-- on round %d" % (pkt[ResistProtocol].round))
+            #print(eval(pkt[Raw].load))
+            rcv_data = eval(pkt[Raw].load)
+            self.received_determinants_for_replay = self.received_determinants_for_replay + rcv_data["fragment"]
+            if int(rcv_data["index"] == 0):
+                self.iface = self.iface_replica
+                self.file_logs.write("CHANGE INTERFACE, :"+str(time.time()) + "\n")
+            if int(rcv_data["index"]) == int(pkt[ResistProtocol].pid) - 1:  #this is the last fragment
+                #this should increase only after all fragments are received
+                self.determinants_buffer = eval(self.received_determinants_for_replay) #converts string into determinants
+                self.global_virtual_round = pkt[ResistProtocol].round #this is the replica round
+                self.shim_layer_state = "Replay"  #trigger the replay in this particular host
+            else: #request the remainder data
+                pkt_reply =  Ether(src=get_if_hwaddr(self.iface), dst='ff:ff:ff:ff:ff:ff', type=TYPE_RES)
+                pkt_reply =  pkt_reply / ResistProtocol(flag=REQUEST_SPLIT_CONTROL, pid=self.pid) / IP(dst= coordinatorAdress)
+                #print(self.nodes[str(pkt[ResistProtocol].pid)])
+                sendp(pkt_reply, iface=self.iface, verbose=False)
 
-            #self.send_replay_packets(replay_determinants=eval(pkt[Raw].load), round=pkt[ResistProtocol].round) l
-            #packet unordered in the switch. Send it back
         if ResistProtocol in pkt and pkt[ResistProtocol].flag == PKT_UNORDERED_REPLAY:
-            self.file_shim.write("Unordered"+str(pkt[ResistProtocol].round)+"\n")
-            #pkt.show2()
+            self.file_shim.write("Unordered" + str(pkt[ResistProtocol].round) + "\n")
             pkt2 =  Ether(src=get_if_hwaddr(self.iface_replica), dst='ff:ff:ff:ff:ff:ff', type=TYPE_RES)
             pkt2 = pkt2 / ResistProtocol(flag=PKT_REPLAY_FROM_SHIM, pid = self.pid, round=pkt[ResistProtocol].round, value=pkt[ResistProtocol].value) / IP(dst=coordinatorAdress)
             sendp(pkt2, iface=self.iface, verbose=False)
-            print("replay_unordered")
+
+            print("replay_unordered" + str(pkt[ResistProtocol].round))
         if ResistProtocol in pkt and pkt[ResistProtocol].flag == REQUEST_DATA:
             #this is the case the switch failed, and the coordinator is asking for information to recover
             #lock application
@@ -210,8 +217,6 @@ class shim_layer:
             #i need to split t his content. Otherwise it breaks because it is too long
             determinants = str(self.input_log)
             self.split_determinants(determinants)
-            print(self.local_determinants)
-            print(len(self.local_determinants))
 
             pkt2 = pkt2 / ResistProtocol(flag=REPORT_DATA, pid = self.pid, round = len(self.local_determinants)) / IP(dst=coordinatorAdress)
             pkt2 = pkt2 / Raw(load=str({"index": self.local_determinants_index, "fragment": self.local_determinants[self.local_determinants_index]}))
@@ -264,15 +269,3 @@ class shim_layer:
         self.pkts_per_second[self.current_measured_second] = self.pkts_per_second[self.current_measured_second] + 1
         self.clock_tick()
         self.application_send_messages_semaphor.release()
-
-
-
-    #TODO: send everything using this method
-
-    #def send(self, addr, input):
-    #    self.output_log.append({"lvt":self.clock_tick(), "data": input})
-    #    print("sending on interface %s to %s" % (self.iface, str(addr)))
-    #    pkt =  Ether(src=get_if_hwaddr(self.iface), dst='ff:ff:ff:ff:ff:ff', type=TYPE_RES)
-    #    pkt = pkt / ResistProtocol(flag=PKT_FROM_SHIM_LAYER, pid = self.pid, value=self.clock) / IP(dst=addr) / TCP(dport=1234, sport=random.randint(49152,65535)) / input
-    #    #pkt.show2()
-    #    sendp(pkt, iface=self.iface, verbose=False)
