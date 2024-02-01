@@ -57,6 +57,7 @@ header ipv4_t {
 struct metadata {
     bit<32> current_round;
     bit<32> simulateFailure;
+    bit<32> simulateOrphans;
     bit<32> causality_v_counter;
     bit<32> last_round_number;
     bit<32> mark_to_bounce;

@@ -4,7 +4,6 @@
 
 #include "includes/headers.p4"
 
-#define DROP_REPLICATION_EXPERIMENT false
 
 
 /*************************************************************************
@@ -205,11 +204,8 @@ apply {
 }
 }
 
-/*
-if (hdr.resist.isValid() && hdr.resist.type != PKT_UNORDERED_REPLAY) {
-    ipv4_lpm.apply();
-}*/
 
+register<bit<32>>(1) simulate_orphans;
 
 /*************************************************************************
 ****************  E G R E S S   P R O C E S S I N G   *******************
@@ -218,6 +214,8 @@ if (hdr.resist.isValid() && hdr.resist.type != PKT_UNORDERED_REPLAY) {
 control MyEgress(inout headers hdr,
                  inout metadata meta,
                  inout standard_metadata_t standard_metadata) {
+
+
 
     action drop() {
         mark_to_drop(standard_metadata);
@@ -255,11 +253,10 @@ control MyEgress(inout headers hdr,
         //packet that will be forwarded to the replica
         }else if (standard_metadata.instance_type == PKT_INSTANCE_TYPE_EGRESS_CLONE) {
 
-            #ifdef DROP_REPLICATION_EXPERIMENT
-            if(hdr.resist.round == 20){
+            simulate_orphans.read(meta.simulateOrphans, 0);   //configured from the control plane
+            if(meta.simulateOrphans == 1){
                 drop();
             }
-            #endif
 
             hdr.resist.type = PKT_FROM_MASTER_TO_REPLICA;
             clone_packet();

@@ -36,7 +36,7 @@ def main():
 
     define_nodes(size)
 
-    shim = shim_layer(pid)
+    shim = shim_layer(pid, size)
 
     f = open("shared_mem/"+str(pid)+".txt", "w")
 

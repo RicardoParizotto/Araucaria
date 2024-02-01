@@ -1,0 +1,13 @@
+#!/bin/bash
+
+#Kill any running bmv2 switch
+make stop
+
+#Launch the switch
+python3 run.py 3 bmv2 &
+
+#Wait to it to get setup
+sleep 50
+
+#simulate failures
+python3 run.py 3 cli

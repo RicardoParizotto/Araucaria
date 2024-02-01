@@ -189,7 +189,7 @@ class coordinator:
                     pkt_reply =  Ether(src=get_if_hwaddr(self.iface), dst='ff:ff:ff:ff:ff:ff', type=TYPE_RES)
                     pkt_reply =  pkt_reply / ResistProtocol(flag=REQUEST_SPLIT_DATA) / IP(dst= self.nodes[str(pkt[ResistProtocol].pid)])
                     print(self.nodes[str(pkt[ResistProtocol].pid)])
-                    pkt_reply.show2()
+                    #pkt_reply.show2()
                     sendp(pkt_reply, iface=self.iface, verbose=False)
 
         if ResistProtocol in pkt and pkt[ResistProtocol].flag == PKT_EXPORT_ROUND:
