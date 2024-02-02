@@ -144,8 +144,9 @@ class coordinator:
             pkt =  Ether(src=get_if_hwaddr(self.iface), dst='ff:ff:ff:ff:ff:ff', type=TYPE_RES)
             pkt =  pkt / ResistProtocol(flag=REPLAY_DATA, round=self.safe_round_number, pid=len(self.determinants_splitted[node])) / IP(dst= self.nodes[str(node)])
             pkt = pkt / Raw(load=str({"index": self.index_determinants_splitted[node], "fragment": self.determinants_splitted[node][self.index_determinants_splitted[node]]}))
-            sendp(pkt, iface=self.iface, verbose=False)
             self.index_determinants_splitted[node] = self.index_determinants_splitted[node] + 1
+            sendp(pkt, iface=self.iface, verbose=False)
+
         print("aggregated")
         self.file_logs.write("ENDS_AGGREGATION:"+str(time.time()) + "\n" )
         self.file_logs.flush()
@@ -167,7 +168,6 @@ class coordinator:
             pkt2 = pkt2 / ResistProtocol(flag=REPLAY_DATA, pid = len(self.determinants_splitted[pid]), round = self.safe_round_number) / IP(dst=self.nodes[str(pid)])
             pkt2 = pkt2 / Raw(load=str({"index": self.index_determinants_splitted[pid], "fragment": self.determinants_splitted[pid][self.index_determinants_splitted[pid]]}))
             self.index_determinants_splitted[pid] = self.index_determinants_splitted[pid] + 1
-            #pkt2.show2()
             sendp(pkt2, iface=self.iface, verbose=False)
         if ResistProtocol in pkt and pkt[ResistProtocol].flag == REPORT_DATA:
             if Raw in pkt:

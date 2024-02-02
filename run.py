@@ -57,6 +57,9 @@ class MininetProc:
         x = input()
 
 def run_experiment(size):
+    file = open("includes/sizedef.p4", "w+")
+    file.write("#define CLUSTER_SIZE" + str(size))
+    file.close()
     mininet_proc = MininetProc(size)
     mininet_proc.run_coordinator()
 

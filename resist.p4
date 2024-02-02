@@ -3,6 +3,7 @@
 #include <v1model.p4>
 
 #include "includes/headers.p4"
+#include "includes/sizedef.p4"
 
 
 
@@ -48,6 +49,7 @@ register<bit<32>>(1) roundNumber;
 register<bit<32>>(1) simulateFailure;
 register<bit<32>>(1) lastRoundNumber;
 register<bit<32>>(1) causality_violation;
+register<bit<32>>(1) counter_for_strong_eventual;
 
 /*************************************************************************
 **************  I N G R E S S   P R O C E S S I N G   *******************
@@ -172,11 +174,28 @@ apply {
                    drop();
                 }
 
+                //just checks if the amount of packets processed is
+                //TODO: handle the case where not all processes send packets during the replay
+                if(hdr.resist.type == PKT_REPLAY_STRONG_EVENTUAL){
+                   counter_for_strong_eventual.read(meta.counter_round, 0);
+                   meta.counter_round = meta.counter_round + 1;
+                   counter_for_strong_eventual.write(0, meta.counter_round);
+                   if(meta.counter_round == CLUSTER_SIZE){
+                       hdr.resist.type = LAST_PACKET_RECEIVED;  //this packet also needs to be processed
+                   }
+                }
+
+                //can i memoize in the previous if conditions to avoid all the comparisons below?
                 //process the INC (last packet received and pkt replay from shim are the same thing)
-                if (hdr.resist.type == PKT_FROM_SHIM_LAYER  || hdr.resist.type == LAST_PACKET_RECEIVED || hdr.resist.type == PKT_FROM_MASTER_TO_REPLICA  || hdr.resist.type == PKT_REPLAY_FROM_SHIM){
-                    roundNumber.read(meta.current_round, 0);
-                    hdr.resist.round = meta.current_round + 1;
-                    roundNumber.write(0, meta.current_round + 1);
+                if (hdr.resist.type == PKT_FROM_SHIM_LAYER  || hdr.resist.type == LAST_PACKET_RECEIVED
+                 || hdr.resist.type == PKT_FROM_MASTER_TO_REPLICA  || hdr.resist.type == PKT_REPLAY_FROM_SHIM
+                 || hdr.resist.type == PKT_REPLAY_STRONG_EVENTUAL){
+                    //strong eventual does not need to change round number
+                    if (hdr.resist.type != PKT_REPLAY_STRONG_EVENTUAL){
+                        roundNumber.read(meta.current_round, 0);
+                        hdr.resist.round = meta.current_round + 1;
+                        roundNumber.write(0, meta.current_round + 1);
+                    }
                     /*** INC IS HERE**/
                     //ipv4_lpm.apply();
                 }

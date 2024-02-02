@@ -36,14 +36,19 @@ PKT_UNORDERED_REPLAY = 9
 LAST_PACKET_RECEIVED = 13
 PKT_REPLAY_ACK = 20
 PKT_APP_ACK = 22
+PKT_REPLAY_STRONG_EVENTUAL = 66
 
 coordinatorAdress = "10.0.3.3"
 
 UNLOCKED = 0
 LOCKED = 1
 
+CONSISTENCY_MODELS = ["STRONG", "EVENTUAL", "STRONG_EVENTUAL"]
+
+CONSISTENCY = "STRONG_EVENTUAL"
+
 class shim_layer:
-    def __init__(self, pid):
+    def __init__(self, pid, size):
          self.pid = pid
          self.input_log = []
          self.output_log = []
@@ -60,7 +65,8 @@ class shim_layer:
          self.local_determinants_index = 0     #current element of list being forwarded to the coordinator
 
          #this variables are useful for replay. They should be protected by some lock mechanism
-         self.shim_layer_state = "Alive"
+         #self.shim_layer_state = "Alive"
+         self.shim_replay_event = threading.Event()
          self.global_virtual_round = 0    #this variable will keep the round that starts the replay
          self.determinants_buffer = {}
 
@@ -68,12 +74,11 @@ class shim_layer:
          self.application_send_messages_semaphor = threading.Semaphore(1)   #this semaphore is to allow only one thing to happen: either send normal messages, or replay
          self.sniffer_ready = threading.Event()   #this is for signaling an ack for the application receive
 
-
          self.pkts_per_second = [0]
          self.current_measured_second = 0
 
-         self.file_logs = open("shim_logs/"+str(self.pid)+"_log_times.txt", "w")
-         self.file_shim = open("shim_logs/"+str(self.pid)+"log.txt", "w")
+         self.file_logs = open("shim_logs/"+str(self.pid)+"log_size"+str(size)+".txt", "w")
+         #self.file_shim = open("shim_logs/"+str(self.pid)+"log.txt", "w")
 
          self.replayDeterminants = {}
 
@@ -84,7 +89,7 @@ class shim_layer:
          self.receiveReplicaThread.start()
 
          self.tick_seconds_thread = threading.Thread(target=self.tick_seconds, args=())
-         self.tick_seconds_thread.start()
+         #self.tick_seconds_thread.start()
 
          self.send_replay_packets = threading.Thread(target=self.send_replay_packets, args=())
          self.send_replay_packets.start()
@@ -104,7 +109,7 @@ class shim_layer:
                 self.input_log[:] = sorted(self.input_log, key=lambda x: x['round'])[-5:]
                 self.application_send_messages_semaphor.release()
 
-
+    #collects packets acknowledge per-second and saves in a file
     def tick_seconds(self):
         while(True):
             time.sleep(1)
@@ -140,35 +145,49 @@ class shim_layer:
 
     #this will send the packets to the replica
     def send_replay_packets(self):
-        while(self.shim_layer_state == "Alive"): #this should be in the critical zone
-            time.sleep(2)
+        self.shim_replay_event.wait()
         round = self.global_virtual_round
         replay_determinants = self.determinants_buffer
-        #this condition is to release processes in case the replay does not need to replay anything.
+
         replay_determinants = sorted(replay_determinants, key=lambda x: x['round'])
 
-        print(max(replay_determinants, key=lambda x: x['round']))
-        if (round >= max(replay_determinants, key=lambda x: x['round'])['round']):
-            self.file_logs.write("NORMAL PACKETS AGAIN, :"+str(time.time()) + "\n")
+        last_replay_packet = max(replay_determinants, key=lambda x: x['round'])
+
+        self.file_logs.write("REPLAY_SIZE:" + str(len(replay_determinants)) + "\n")    #just logging
+
+        #this condition is to release processes in case the replay does not need to replay anything.
+        #happens when the replica already has all the packets from this LP
+        #we could do that at the coordinator :D
+        if (round >= last_replay_packet['round']):
+            self.file_logs.write("Recovery: "+str(time.time()) + "\n")
+            self.file_logs.flush()
             self.application_send_messages_semaphor.release()
             self.sniffer_ready.set() #just in case the replica received the packet but the ack was not sent to the servers
-            print("releasing")
         else:
-            for msg_from_coordinator in replay_determinants:
-                print("msg from coordinator" + str(msg_from_coordinator))
-                if msg_from_coordinator['round'] > round:
-                    print(msg_from_coordinator['round'])
-                    for msg_in_shim in self.output_log:
-                        #print(msg_in_shim)
-                        if msg_from_coordinator['lvt'] == msg_in_shim['lvt']:
-                            self.replay_semaphor.acquire()
-                            print("replay round" +  str(msg_from_coordinator['round']))
-                            pkt =  Ether(src=get_if_hwaddr(self.iface), dst='ff:ff:ff:ff:ff:ff', type=TYPE_RES)
-                            pkt = pkt / ResistProtocol(flag=PKT_REPLAY_FROM_SHIM, pid = self.pid, value= msg_in_shim['lvt'], round=msg_from_coordinator['round'])
-                            pkt = pkt / IP(dst="10.0.1.1") / TCP(dport=1234, sport=random.randint(49152,65535))
-                            sendp(pkt, iface=self.iface, verbose=False)
-                            self.file_shim.write("replay" + "\n")
-                            #preciso fazer algo para enviar so dps do ack
+            if(CONSISTENCY == "STRONG"):
+                for msg_from_coordinator in replay_determinants:
+                    print("msg from coordinator" + str(msg_from_coordinator))
+                    if msg_from_coordinator['round'] > round:
+                        print(msg_from_coordinator['round'])
+                        for msg_in_shim in self.output_log:
+                            #print(msg_in_shim)
+                            if msg_from_coordinator['lvt'] == msg_in_shim['lvt']:
+                                self.replay_semaphor.acquire()
+                                #print("replay round" +  str(msg_from_coordinator['round']))
+                                pkt =  Ether(src=get_if_hwaddr(self.iface), dst='ff:ff:ff:ff:ff:ff', type=TYPE_RES)
+                                pkt = pkt / ResistProtocol(flag=PKT_REPLAY_FROM_SHIM, pid = self.pid, value= msg_in_shim['lvt'], round=msg_from_coordinator['round'])
+                                pkt = pkt / IP(dst="10.0.1.1") / TCP(dport=1234, sport=random.randint(49152,65535))
+                                sendp(pkt, iface=self.iface, verbose=False)
+                                self.file_logs.write("REPLAY:" + "\n")
+                                #preciso fazer algo para enviar so dps do ack
+            elif(CONSISTENCY == "STRONG_EVENTUAL"):
+                msg_to_replay = [element for element in self.output_log if element['lvt'] == last_replay_packet['lvt']]
+                pkt =  Ether(src=get_if_hwaddr(self.iface), dst='ff:ff:ff:ff:ff:ff', type=TYPE_RES)
+                pkt = pkt / ResistProtocol(flag=PKT_REPLAY_STRONG_EVENTUAL, pid = self.pid, value=  msg_to_replay[0]['lvt'], round=last_replay_packet['round'])
+                pkt = pkt / IP(dst="10.0.1.1")
+                sendp(pkt, iface=self.iface, verbose=False)
+                pkt.show2()
+                self.file_logs.write("REPLAY:" + "\n")
 
     #this splits our local determinants
     #used before sending to the coordinator to avoid sending large strings that can not fit the link
@@ -188,12 +207,15 @@ class shim_layer:
             self.received_determinants_for_replay = self.received_determinants_for_replay + rcv_data["fragment"]
             if int(rcv_data["index"] == 0):
                 self.iface = self.iface_replica
-                self.file_logs.write("CHANGE INTERFACE, :"+str(time.time()) + "\n")
+                self.file_logs.flush()
+                self.file_logs.write("CHANGE INTERFACE :"+str(time.time()) + "\n")
+                self.file_logs.flush()
             if int(rcv_data["index"]) == int(pkt[ResistProtocol].pid) - 1:  #this is the last fragment
                 #this should increase only after all fragments are received
                 self.determinants_buffer = eval(self.received_determinants_for_replay) #converts string into determinants
                 self.global_virtual_round = pkt[ResistProtocol].round #this is the replica round
-                self.shim_layer_state = "Replay"  #trigger the replay in this particular host
+                #self.shim_layer_state = "Replay"
+                self.shim_replay_event.set()   #trigger the replay in this particular host
             else: #request the remainder data
                 pkt_reply =  Ether(src=get_if_hwaddr(self.iface), dst='ff:ff:ff:ff:ff:ff', type=TYPE_RES)
                 pkt_reply =  pkt_reply / ResistProtocol(flag=REQUEST_SPLIT_CONTROL, pid=self.pid) / IP(dst= coordinatorAdress)
@@ -201,7 +223,7 @@ class shim_layer:
                 sendp(pkt_reply, iface=self.iface, verbose=False)
 
         if ResistProtocol in pkt and pkt[ResistProtocol].flag == PKT_UNORDERED_REPLAY:
-            self.file_shim.write("Unordered" + str(pkt[ResistProtocol].round) + "\n")
+            #self.file_shim.write("Unordered" + str(pkt[ResistProtocol].round) + "\n")
             pkt2 =  Ether(src=get_if_hwaddr(self.iface_replica), dst='ff:ff:ff:ff:ff:ff', type=TYPE_RES)
             pkt2 = pkt2 / ResistProtocol(flag=PKT_REPLAY_FROM_SHIM, pid = self.pid, round=pkt[ResistProtocol].round, value=pkt[ResistProtocol].value) / IP(dst=coordinatorAdress)
             sendp(pkt2, iface=self.iface, verbose=False)
@@ -239,7 +261,9 @@ class shim_layer:
             #release lock
             #self.lockApplicationProcess = UNLOCKED
             self.application_send_messages_semaphor.release()
-            self.file_logs.write("NORMAL PACKETS AGAIN, :"+str(time.time()) + "\n")
+            self.file_logs.flush()
+            self.file_logs.write("RESUME :"+str(time.time()) + "\n")
+            self.file_logs.flush()
             #self.ACK_REPLAY = True
             self.replay_semaphor.release()
         if ResistProtocol in pkt and pkt[ResistProtocol].flag == PKT_APP_ACK:
@@ -250,13 +274,6 @@ class shim_layer:
             print("got a normal packet")
             self.input_log.append({"lvt":pkt[ResistProtocol].value, "round": pkt[ResistProtocol].round, "pid": pkt[ResistProtocol].pid})
             #print(self.input_log)
-    # old function
-    def send_buffer(self):
-        self.file_logs.write("BUFFER PACKETS, :"+str(time.time()) + "\n")
-        for pkt in self.app_buffer:
-            sendp(pkt, iface=self.iface, verbose=False)
-            self.app_buffer.remove(pkt)
-            self.pkts_per_second[self.current_measured_second] = self.pkts_per_second[self.current_measured_second] + 1
 
     def app_interface_send(self, addr, src, input):
         pkt =  Ether(src=get_if_hwaddr(self.iface), dst='ff:ff:ff:ff:ff:ff', type=TYPE_RES)

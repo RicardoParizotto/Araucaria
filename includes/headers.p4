@@ -22,6 +22,7 @@ const bit<8> RECIRC_FL_1 = 3;
 #define PKT_REPLAY_ACK 20
 #define PKT_UNORDERED 21
 #define PKT_APP_ACK 22
+#define PKT_REPLAY_STRONG_EVENTUAL 66
 
 /*************************************************************************
 *********************** H E A D E R S  ***********************************
@@ -56,6 +57,7 @@ header ipv4_t {
 
 struct metadata {
     bit<32> current_round;
+    bit<32> counter_round;
     bit<32> simulateFailure;
     bit<32> simulateOrphans;
     bit<32> causality_v_counter;
