@@ -115,9 +115,9 @@ class coordinator:
     #used before sending to the coordinator to avoid sending large strings that can not fit the link
     def split_determinants(self, determinants_string, node):
         self.determinants_splitted[node] = []
-        while len(determinants_string) > 100:
-            self.determinants_splitted[node].append(determinants_string[0:99])
-            determinants_string = determinants_string[99:]
+        while len(determinants_string) > 1000:
+            self.determinants_splitted[node].append(determinants_string[0:999])
+            determinants_string = determinants_string[999:]
         if(len(determinants_string) > 0):
             self.determinants_splitted[node].append(determinants_string)
         self.index_determinants_splitted[node] = 0

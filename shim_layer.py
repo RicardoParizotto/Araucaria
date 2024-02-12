@@ -15,8 +15,6 @@ from scapy.all import (
     sniff
 )
 
-
-
 from scapy.all import IP, TCP, Ether, get_if_hwaddr, get_if_list, sendp
 
 from resist_header import *
@@ -45,7 +43,7 @@ LOCKED = 1
 
 CONSISTENCY_MODELS = ["STRONG", "EVENTUAL", "STRONG_EVENTUAL"]
 
-CONSISTENCY = "STRONG_EVENTUAL"
+CONSISTENCY = "STRONG"
 
 class shim_layer:
     def __init__(self, pid, size):
@@ -153,7 +151,7 @@ class shim_layer:
 
         last_replay_packet = max(replay_determinants, key=lambda x: x['round'])
 
-        self.file_logs.write("REPLAY_SIZE:" + str(len(replay_determinants)) + "\n")    #just logging
+        replay_counter = 0
 
         #this condition is to release processes in case the replay does not need to replay anything.
         #happens when the replica already has all the packets from this LP
@@ -174,6 +172,7 @@ class shim_layer:
                             if msg_from_coordinator['lvt'] == msg_in_shim['lvt']:
                                 self.replay_semaphor.acquire()
                                 #print("replay round" +  str(msg_from_coordinator['round']))
+                                replay_counter = replay_counter + 1
                                 pkt =  Ether(src=get_if_hwaddr(self.iface), dst='ff:ff:ff:ff:ff:ff', type=TYPE_RES)
                                 pkt = pkt / ResistProtocol(flag=PKT_REPLAY_FROM_SHIM, pid = self.pid, value= msg_in_shim['lvt'], round=msg_from_coordinator['round'])
                                 pkt = pkt / IP(dst="10.0.1.1") / TCP(dport=1234, sport=random.randint(49152,65535))
@@ -188,13 +187,14 @@ class shim_layer:
                 sendp(pkt, iface=self.iface, verbose=False)
                 pkt.show2()
                 self.file_logs.write("REPLAY:" + "\n")
+        self.file_logs.write("REPLAY_SIZE:" + str(replay_counter) + "\n")
 
     #this splits our local determinants
     #used before sending to the coordinator to avoid sending large strings that can not fit the link
     def split_determinants(self, determinants_string):
-        while len(determinants_string) > 100:
-            self.local_determinants.append(determinants_string[0:99])
-            determinants_string = determinants_string[99:]
+        while len(determinants_string) > 1000:
+            self.local_determinants.append(determinants_string[0:999])
+            determinants_string = determinants_string[999:]
         if(len(determinants_string) > 0):
             self.local_determinants.append(determinants_string)
 
