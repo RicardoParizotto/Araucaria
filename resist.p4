@@ -228,8 +228,8 @@ apply {
                 if(hdr.resist.type == PKT_FROM_MASTER_TO_REPLICA){
                     /*send ack back to the main :)*/
                     hdr.resist.type = PKT_ACK_MAIN_SWITCH;
+                    hdr.resist.round = hdr.resist.round - 1;
                     bounce_pkt();
-                    //drop();  //Nooooo. Send ack back
                 }
                 if(hdr.resist.type == PKT_REPLAY_FROM_SHIM){
                     meta.mark_to_ack = 1;
@@ -344,7 +344,6 @@ control MyEgress(inout headers hdr,
             if(meta.simulateOrphans == 1){
                 simulate_orphans.write(0, 0); /*just this packet is droped*/
                 drop();
-
             }
             hdr.resist.type = PKT_FROM_MASTER_TO_REPLICA;
             clone_packet();   //one is for the replica, the other is for acking the shim layer
