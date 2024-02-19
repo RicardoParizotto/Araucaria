@@ -131,6 +131,12 @@ apply {
                     bounce_pkt();
                 }
 
+                if(hdr.resist.type == PKT_NEW_SWITCH_ROUND){
+                    roundNumber.write(0, hdr.resist.round - 1);
+                    hdr.resist.type = PKT_NEW_SWITCH_ROUND_ACK;
+                    bounce_pkt();
+                }
+
                 //if packet is unordered (i.e, packet came from a replica)
                 if(hdr.resist.type == PKT_UNORDERED_REPLAY){ //change type. This is not unordered `replay`
                     bounce_pkt();

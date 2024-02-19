@@ -28,6 +28,10 @@ from resist_header import *
 #inject a failure in the main switch
 #add more hosts*/
 
+CONSISTENCY_MODELS = ["STRONG", "EVENTUAL", "STRONG_EVENTUAL", "SENOCRDT"]
+
+CONSISTENCY = "SENOCRDT"
+
 
 PKT_FROM_SHIM_LAYER = 50
 PKT_FROM_MASTER_TO_REPLICA =  1
@@ -42,6 +46,9 @@ PKT_LAST_REPLAY_ROUND = 12
 
 REQUEST_SPLIT_DATA = 61
 REQUEST_SPLIT_CONTROL = 62
+PKT_NEW_SWITCH_ROUND = 80
+PKT_NEW_SWITCH_ROUND_ACK = 81
+PKT_LAST_REPLAY_ROUND_ACK = 82
 
 class coordinator:
     def __init__(self, size):
@@ -71,10 +78,13 @@ class coordinator:
 
         self.safe_round_number = 0 #variable for controllng the round number in case of restore
         self.max_round = 0  #variable to control the last round number in the replay. This should be equal in all replicas
+        self.max_per_node = {}
 
         #pick an interface. IT should be eth0
         self.ifaces.remove(self.iface) #removes eth0 from the interface
         self.master_alive = True  #it starts with the master alive
+
+        self.wait_for_round_update_ack = threading.Event()
 
         self.receiveThread = threading.Thread(target = self.receive)
         self.receiveThread.start()
@@ -106,10 +116,7 @@ class coordinator:
         self.switch_collection_done.wait()
 
         self.aggregateAndComputeState()
-        #send packet telling the switch what is the last round number
-        pkt =  Ether(src=get_if_hwaddr(self.iface), dst='ff:ff:ff:ff:ff:ff')
-        pkt =  pkt / ResistProtocol(flag=PKT_LAST_REPLAY_ROUND, round=self.max_round) / IP(dst= "10.0.1.1")
-        sendp(pkt, iface=self.iface, verbose=False)
+
 
     #this splits our local determinants
     #used before sending to the coordinator to avoid sending large strings that can not fit the link
@@ -124,17 +131,35 @@ class coordinator:
 
     def aggregateAndComputeState(self):
         self.max_round = 0
+        #self.max_per_node = {} #this is only used for replaying strong fixing conflicts but no CRDT
         for node in self.inputPerNode.keys():
             #for messages from every node
             for msg in self.inputPerNode[node]:
                 #if the ID is not know by the replayInput data structure
                 if msg['pid'] not in self.replayInput.keys():
                     self.replayInput[msg['pid']] = []
+                    self.max_per_node[msg['pid']] = 0
                 #if the specific LVT is not in the set of messages that pid has to replay, include this message and its round number to the set
                 if msg['lvt'] not in self.replayInput[msg['pid']]:
                     self.replayInput[msg['pid']].append(msg)
                     if msg['round'] > self.max_round:
                         self.max_round = msg['round']
+                    if msg['round'] > self.max_per_node[msg['pid']]:   #calculates maximum round for each node. Just for CRDT-min
+                        self.max_per_node[msg['pid']] = msg['round']
+
+        #send packet telling the switch what is the last round number
+        pkt =  Ether(src=get_if_hwaddr(self.iface), dst='ff:ff:ff:ff:ff:ff')
+        pkt =  pkt / ResistProtocol(flag=PKT_LAST_REPLAY_ROUND, round=self.max_round) / IP(dst= "10.0.1.1")
+        sendp(pkt, iface=self.iface, verbose=False)
+
+        if(CONSISTENCY == "SENOCRDT"):
+            new_round = self.max_per_node[min(self.max_per_node, key=lambda k: self.max_per_node[k])]
+            self.safe_round_number = new_round     #new round
+            #atualiza round do switch. ISso e so para um caso especifico sem crdt
+            pkt =  Ether(src=get_if_hwaddr(self.iface), dst='ff:ff:ff:ff:ff:ff')
+            pkt =  pkt / ResistProtocol(flag=PKT_NEW_SWITCH_ROUND, round=new_round) / IP(dst= "10.0.1.1")
+            sendp(pkt, iface=self.iface, verbose=False)
+            self.wait_for_round_update_ack.wait()
 
         print("aggregating")
         #send info for all the self.nodes regarding the aggregated information
@@ -158,6 +183,8 @@ class coordinator:
               prn = lambda x: self.handle_pkt(x))
 
     def handle_pkt(self, pkt):
+        if ResistProtocol in pkt and pkt[ResistProtocol].flag == PKT_NEW_SWITCH_ROUND_ACK:
+            self.wait_for_round_update_ack.set()
         if ResistProtocol in pkt and pkt[ResistProtocol].flag == PKT_PONG:
             print("pong")
             self.master_alive = True

@@ -23,6 +23,9 @@ const bit<8> RECIRC_FL_1 = 3;
 #define PKT_UNORDERED 21
 #define PKT_APP_ACK 22
 #define PKT_REPLAY_STRONG_EVENTUAL 66
+#define PKT_NEW_SWITCH_ROUND 80
+#define PKT_NEW_SWITCH_ROUND_ACK 81
+#define PKT_LAST_REPLAY_ROUND_ACK 82
 
 /*************************************************************************
 *********************** H E A D E R S  ***********************************

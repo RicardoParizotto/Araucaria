@@ -43,7 +43,7 @@ LOCKED = 1
 
 CONSISTENCY_MODELS = ["STRONG", "EVENTUAL", "STRONG_EVENTUAL"]
 
-CONSISTENCY = "STRONG_EVENTUAL"
+CONSISTENCY = "STRONG"
 
 class shim_layer:
     def __init__(self, pid, size):
@@ -179,7 +179,7 @@ class shim_layer:
                                 sendp(pkt, iface=self.iface, verbose=False)
                                 self.file_logs.write("REPLAY:" + "\n")
                                 #preciso fazer algo para enviar so dps do ack
-            elif(CONSISTENCY == "STRONG_EVENTUAL"):
+            elif (CONSISTENCY == "STRONG_EVENTUAL"):
                 msg_to_replay = [element for element in self.output_log if element['lvt'] == last_replay_packet['lvt']]
                 pkt =  Ether(src=get_if_hwaddr(self.iface), dst='ff:ff:ff:ff:ff:ff', type=TYPE_RES)
                 pkt = pkt / ResistProtocol(flag=PKT_REPLAY_STRONG_EVENTUAL, pid = self.pid, value=  msg_to_replay[0]['lvt'], round=last_replay_packet['round'])
@@ -227,7 +227,6 @@ class shim_layer:
             pkt2 =  Ether(src=get_if_hwaddr(self.iface_replica), dst='ff:ff:ff:ff:ff:ff', type=TYPE_RES)
             pkt2 = pkt2 / ResistProtocol(flag=PKT_REPLAY_FROM_SHIM, pid = self.pid, round=pkt[ResistProtocol].round, value=pkt[ResistProtocol].value) / IP(dst=coordinatorAdress)
             sendp(pkt2, iface=self.iface, verbose=False)
-
             print("replay_unordered" + str(pkt[ResistProtocol].round))
         if ResistProtocol in pkt and pkt[ResistProtocol].flag == REQUEST_DATA:
             #this is the case the switch failed, and the coordinator is asking for information to recover
