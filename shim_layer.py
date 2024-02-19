@@ -43,7 +43,7 @@ LOCKED = 1
 
 CONSISTENCY_MODELS = ["STRONG", "EVENTUAL", "STRONG_EVENTUAL"]
 
-CONSISTENCY = "STRONG"
+CONSISTENCY = "STRONG_EVENTUAL"
 
 class shim_layer:
     def __init__(self, pid, size):
