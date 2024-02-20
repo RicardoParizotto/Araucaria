@@ -86,13 +86,13 @@ def first_analysis():
 
     fig,ax = plt.subplots(figsize=(6, 3))
 
-    plt.errorbar(range(0,1000, 100), average, yerr=std, linestyle = 'dotted')
+    plt.errorbar(range(0,1000, 100), average, yerr=std, linestyle = 'dashed', color='gray',capsize=5, linewidth=2)
 
     plt.xticks(fontsize = 16)
     plt.yticks(fontsize = 16)
     plt.grid(zorder=-1, linestyle='--')
 
-    plt.ylabel('Compilation time(s)', fontsize=17)
+    plt.ylabel('Translation time(s)', fontsize=17)
     plt.xlabel('# of intents', fontsize=17)
 
     #ax.set_xscale('log')
@@ -103,6 +103,7 @@ def first_analysis():
 
     plt.show()
 
+#first_analysis()
 
 if __name__ == "__main__":
     t = time.process_time()   #benchmark purposes
