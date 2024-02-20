@@ -43,7 +43,7 @@ LOCKED = 1
 
 CONSISTENCY_MODELS = ["STRONG", "EVENTUAL", "STRONG_EVENTUAL"]
 
-CONSISTENCY = "STRONG"
+CONSISTENCY = "STRONG_EVENTUAL"
 
 class shim_layer:
     def __init__(self, pid, size):
@@ -87,7 +87,7 @@ class shim_layer:
          self.receiveReplicaThread.start()
 
          self.tick_seconds_thread = threading.Thread(target=self.tick_seconds, args=())
-         #self.tick_seconds_thread.start()
+         self.tick_seconds_thread.start()
 
          self.send_replay_packets = threading.Thread(target=self.send_replay_packets, args=())
          self.send_replay_packets.start()
