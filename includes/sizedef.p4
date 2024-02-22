@@ -1,1 +1,1 @@
-#define CLUSTER_SIZE 16
+#define CLUSTER_SIZE 4

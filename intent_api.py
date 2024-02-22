@@ -7,6 +7,8 @@ import numpy as np
 from arauc_parser import *
 from run import *
 
+plt.rcParams["font.family"] = "Arial"
+
 #this is the database content
 
 functionality_base = {"@teste": {"backend": "python3 run.py", "input": "@size", "input_type": "int"}}
@@ -103,31 +105,31 @@ def first_analysis():
 
     plt.show()
 
-#first_analysis()
+first_analysis()
 
-if __name__ == "__main__":
-    t = time.process_time()   #benchmark purposes
+#if __name__ == "__main__":
+#    t = time.process_time()   #benchmark purposes
 
-    while(True):
-        try:
-            string = input()
-        except EOFError:
-            break
+#    while(True):
+#        try:
+#            string = input()
+#        except EOFError:
+#            break
 
-        parser_result = parser.parse(string)
-        print(parser_result)
-        semantics_result = semantic_analysis(parser_result)
-        if semantics_result == "passed":
-            commit_intent(parser_result)
-        else:
-            print(semantics_result)
-
-        if(string == 'exit()'):
-            break
+#        parser_result = parser.parse(string)
+#        print(parser_result)
+#        semantics_result = semantic_analysis(parser_result)
+#        if semantics_result == "passed":
+#            commit_intent(parser_result)
+#        else:
+#            print(semantics_result)
+#
+#        if(string == 'exit()'):
+#            break
 
     #------benckmark---purposes--------------------
-    elapsed_time = time.process_time() - t
+#    elapsed_time = time.process_time() - t
 
-    file = open("results", "a")
-    input_size = int(sys.argv[1])
-    file.write(str(input_size) + "," + str(elapsed_time) + ";\n")
+#    file = open("results", "a")
+#    input_size = int(sys.argv[1])
+#    file.write(str(input_size) + "," + str(elapsed_time) + ";\n")
