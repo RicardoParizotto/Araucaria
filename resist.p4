@@ -50,6 +50,7 @@ register<bit<32>>(1) simulateFailure;
 register<bit<32>>(1) lastRoundNumber;
 register<bit<32>>(1) causality_violation;
 register<bit<32>>(1) counter_for_strong_eventual;
+register<bit<48>>(1000) acknowledge_state;
 
 /*************************************************************************
 **************  I N G R E S S   P R O C E S S I N G   *******************
@@ -78,6 +79,15 @@ control MyIngress(inout headers hdr,
 
     action drop() {
         mark_to_drop(standard_metadata);
+    }
+
+    action compute_hashes() {
+        hash(meta.hashed_round,
+           HashAlgorithm.crc32,
+           (bit<32>) 0,
+           {hdr.resist.round},
+           (bit<32>) MAP_SIZE
+        );
     }
 
     action ipv4_forward(macAddr_t dstAddr, egressSpec_t port) {
@@ -148,6 +158,11 @@ apply {
                     if(hdr.resist.type == PKT_FROM_MASTER_TO_REPLICA ){
                         roundNumber.read(meta.current_round, 0);
                         if(meta.current_round + 1 != hdr.resist.round){
+                            if(hdr.resist.round < meta.current_round ){
+                                /*duplicated packet*/
+                                drop();
+                            }
+                            /*this is just out-of-order*/
                             causality_violation.read(meta.causality_v_counter, 0);
                             causality_violation.write(0, meta.causality_v_counter+1);
                             hdr.resist.type = PKT_UNORDERED;
@@ -174,6 +189,13 @@ apply {
                     }
                 }
 
+                if(hdr.resist.type == PKT_ACK_MAIN_SWITCH){
+                    /*condition to unset the flag in case the main switch receives ack*/
+                    compute_hashes();
+                    acknowledge_state.write(meta.hashed_round, 0);
+                    drop();
+                }
+
                 /*this message is from the controller*/
                 if(hdr.resist.type == PKT_LAST_REPLAY_ROUND){
                    lastRoundNumber.write(0, hdr.resist.round);
@@ -191,7 +213,7 @@ apply {
                    }
                 }
 
-                //can i memoize in the previous if conditions to avoid all the comparisons below?
+                //TODO:can i memoize in the previous if conditions to avoid all the comparisons below?
                 //process the INC (last packet received and pkt replay from shim are the same thing)
                 if (hdr.resist.type == PKT_FROM_SHIM_LAYER  || hdr.resist.type == LAST_PACKET_RECEIVED
                  || hdr.resist.type == PKT_FROM_MASTER_TO_REPLICA  || hdr.resist.type == PKT_REPLAY_FROM_SHIM
@@ -210,10 +232,13 @@ apply {
                     hdr.resist.type = PKT_FROM_SWITCH_TO_APP;
                 }
                 if(hdr.resist.type == PKT_FROM_MASTER_TO_REPLICA){
-                    drop();
+                    /*send ack back to the main :)*/
+                    hdr.resist.type = PKT_ACK_MAIN_SWITCH;
+                    hdr.resist.round = hdr.resist.round - 1;
+                    bounce_pkt();
                 }
                 if(hdr.resist.type == PKT_REPLAY_FROM_SHIM){
-                    hdr.resist.type = PKT_REPLAY_ACK;
+                    meta.mark_to_ack = 1;
                     bounce_pkt();
                 }
                 if(meta.mark_to_bounce == 10){
@@ -266,25 +291,68 @@ control MyEgress(inout headers hdr,
     action clone_packet() {
         const bit<32> REPORT_MIRROR_SESSION_ID = 500;
         // Clone from ingress to egress pipeline
-        clone(CloneType.E2E, REPORT_MIRROR_SESSION_ID);
+        clone_preserving_field_list(CloneType.E2E, REPORT_MIRROR_SESSION_ID, CLONE_FL_1);
+    }
+
+    action compute_hashes() {
+        hash(meta.hashed_round,
+           HashAlgorithm.crc32,
+           (bit<32>) 0,
+           {hdr.resist.round},
+           (bit<32>) MAP_SIZE
+        );
     }
 
     apply {
-        //packet was cloned and will be an ack. Go again to the ingress to set correct ports
-        if (standard_metadata.instance_type == PKT_INSTANCE_TYPE_EGRESS_CLONE && hdr.resist.type==PKT_FROM_MASTER_TO_REPLICA ){
+        if (meta.mark_to_ack == 1){
+            hdr.resist.type = PKT_REPLAY_ACK;
+        }
+        else if(meta.mark_to_ack == 20){   //this is a packet that came back after resending to the replica
+            hdr.resist.type = PKT_BUFFERED;
+            recirculate_packet();
+        }
+        else if(hdr.resist.type == PKT_BUFFERED){
+            /*condition to handle the recirculated packet based on the flag. Either recirculate and resend, or just recirculate*/
+            compute_hashes();
+            /*packet is waiting*/
+            acknowledge_state.read(meta.timestamp_buffered_packet, meta.hashed_round);
+            if(meta.timestamp_buffered_packet == 0){
+                drop();
+            }
+            if((bit <48>) standard_metadata.egress_global_timestamp - meta.timestamp_buffered_packet  > 4){
+                meta.mark_to_ack = 20;
+                clone_packet();
+                hdr.resist.type = PKT_FROM_MASTER_TO_REPLICA;
+                //TODO: clone packet to keep being buffered: is this creating double acks? original is clone, copy will be forwarded to replica
+            }else{
+                recirculate_packet();
+            }
+        }
+        else if(standard_metadata.instance_type == PKT_INSTANCE_TYPE_EGRESS_CLONE && hdr.resist.type==PKT_APP_ACK){
+            /*this packet will be used to recover from packet losses*/
+            /*the packet has all the initial resist headers*/
+            /*set flag to notify that it will be waiting*/
+            compute_hashes();
+            /*packet is waiting*/
+            acknowledge_state.write(meta.hashed_round, (bit <48>) standard_metadata.egress_global_timestamp);
+            hdr.resist.type = PKT_BUFFERED;    //change header to identify it is waiting
+            recirculate_packet();
+        }
+        //packet was cloned and will be an ack to server. Go again to the ingress to set correct ports
+        else if (standard_metadata.instance_type == PKT_INSTANCE_TYPE_EGRESS_CLONE && hdr.resist.type==PKT_FROM_MASTER_TO_REPLICA ){
             hdr.resist.type = PKT_APP_ACK;
+            clone_packet();     //original packet goes  to the shim layer as an ack. Copy will be recirculated for recovering from packet losses
             bounce_pkt();
             recirculate_packet();
         //packet that will be forwarded to the replica
         }else if (standard_metadata.instance_type == PKT_INSTANCE_TYPE_EGRESS_CLONE) {
-
             simulate_orphans.read(meta.simulateOrphans, 0);   //configured from the control plane
             if(meta.simulateOrphans == 1){
+                simulate_orphans.write(0, 0); /*just this packet is droped*/
                 drop();
             }
-
             hdr.resist.type = PKT_FROM_MASTER_TO_REPLICA;
-            clone_packet();
+            clone_packet();   //one is for the replica, the other is for acking the shim layer
         }else{
           if(hdr.resist.isValid() && hdr.resist.type==PKT_FROM_SWITCH_TO_APP){
               clone_packet();   //original packet will be forwarded to the destination

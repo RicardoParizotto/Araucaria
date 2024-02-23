@@ -1,11 +1,18 @@
 const bit<16> TYPE_IPV4 = 0x800;
 const bit<16> TYPE_RES = 0x600;
+const bit<8> EMPTY_FL    = 0;
+const bit<8> RESUB_FL_1  = 1;
+const bit<8> CLONE_FL_1  = 2;
 const bit<8> RECIRC_FL_1 = 3;
+
+#define MAP_SIZE 1000
 
 
 #define PKT_INSTANCE_TYPE_NORMAL 0
 #define PKT_INSTANCE_TYPE_INGRESS_CLONE 1
 #define PKT_INSTANCE_TYPE_EGRESS_CLONE 2
+
+
 
 
 #define PKT_FROM_SHIM_LAYER 50
@@ -23,9 +30,9 @@ const bit<8> RECIRC_FL_1 = 3;
 #define PKT_UNORDERED 21
 #define PKT_APP_ACK 22
 #define PKT_REPLAY_STRONG_EVENTUAL 66
-#define PKT_NEW_SWITCH_ROUND 80
-#define PKT_NEW_SWITCH_ROUND_ACK 81
-#define PKT_LAST_REPLAY_ROUND_ACK 82
+#define PKT_BUFFERED 70
+#define PKT_ACK_MAIN_SWITCH 71
+
 
 /*************************************************************************
 *********************** H E A D E R S  ***********************************
@@ -59,6 +66,10 @@ header ipv4_t {
 #include "modules/Resist/header"
 
 struct metadata {
+    @field_list(CLONE_FL_1)
+    bit<32> mark_to_ack;
+    bit<48> timestamp_buffered_packet;
+    bit<32> hashed_round;
     bit<32> current_round;
     bit<32> counter_round;
     bit<32> simulateFailure;
