@@ -45,6 +45,15 @@ control MyVerifyChecksum(inout headers hdr, inout metadata meta) {
     apply {  }
 }
 
+register<bit<32>>(1) dbg_ack_main_round;
+register<bit<32>>(1) dbg_retransmission;
+register<bit<32>>(1) dbg_buffered;
+register<bit<32>>(1) dbg_ack_main;
+register<bit<32>>(1) dbg_drop_buffer;
+register<bit<32>>(1) dbg_keep_buffer;
+register<bit<32>>(1) dbg_master_to_replica;
+register<bit<32>>(1) dbg_retranmist_round;
+
 register<bit<32>>(1) roundNumber;
 register<bit<32>>(1) simulateFailure;
 register<bit<32>>(1) lastRoundNumber;
@@ -141,6 +150,10 @@ apply {
                     bounce_pkt();
                 }
 
+                if(hdr.resist.type == PKT_BUFFERED){
+                  standard_metadata.egress_spec = 3;
+                }
+
                 if(hdr.resist.type == PKT_NEW_SWITCH_ROUND){
                     roundNumber.write(0, hdr.resist.round - 1);
                     hdr.resist.type = PKT_NEW_SWITCH_ROUND_ACK;
@@ -158,7 +171,9 @@ apply {
                     if(hdr.resist.type == PKT_FROM_MASTER_TO_REPLICA ){
                         roundNumber.read(meta.current_round, 0);
                         if(meta.current_round + 1 != hdr.resist.round){
-                            if(hdr.resist.round < meta.current_round ){
+                            if(hdr.resist.round <= meta.current_round ){
+                                causality_violation.read(meta.causality_v_counter, 0);
+                                causality_violation.write(0, meta.causality_v_counter+1);
                                 /*duplicated packet*/
                                 drop();
                             }
@@ -193,6 +208,9 @@ apply {
                     /*condition to unset the flag in case the main switch receives ack*/
                     compute_hashes();
                     acknowledge_state.write(meta.hashed_round, 0);
+                    dbg_ack_main_round.write(0, hdr.resist.round);
+                    dbg_ack_main.read(meta.dbg_meta, 0);
+                    dbg_ack_main.write(0, meta.dbg_meta+1);
                     drop();
                 }
 
@@ -234,7 +252,9 @@ apply {
                 if(hdr.resist.type == PKT_FROM_MASTER_TO_REPLICA){
                     /*send ack back to the main :)*/
                     hdr.resist.type = PKT_ACK_MAIN_SWITCH;
-                    hdr.resist.round = hdr.resist.round - 1;
+                    dbg_master_to_replica.read(meta.causality_v_counter, 0);
+                    dbg_master_to_replica.write(0, meta.causality_v_counter+1);
+                    hdr.resist.round = hdr.resist.round;
                     bounce_pkt();
                 }
                 if(hdr.resist.type == PKT_REPLAY_FROM_SHIM){
@@ -306,33 +326,41 @@ control MyEgress(inout headers hdr,
     apply {
         if (meta.mark_to_ack == 1){
             hdr.resist.type = PKT_REPLAY_ACK;
-        }
-        else if(meta.mark_to_ack == 20){   //this is a packet that came back after resending to the replica
+        }else if(meta.mark_to_ack == 20){   //this is a packet that came back after resending to the replica
             hdr.resist.type = PKT_BUFFERED;
+            dbg_keep_buffer.read(meta.dbg_meta, 0);
+            dbg_keep_buffer.write(0, meta.dbg_meta+1);
+            meta.mark_to_ack = 0;
             recirculate_packet();
-        }
-        else if(hdr.resist.type == PKT_BUFFERED){
+        }else if(hdr.resist.type == PKT_BUFFERED){
             /*condition to handle the recirculated packet based on the flag. Either recirculate and resend, or just recirculate*/
             compute_hashes();
             /*packet is waiting*/
             acknowledge_state.read(meta.timestamp_buffered_packet, meta.hashed_round);
             if(meta.timestamp_buffered_packet == 0){
+                dbg_drop_buffer.read(meta.dbg_meta, 0);
+                dbg_drop_buffer.write(0, meta.dbg_meta+1);
                 drop();
-            }
-            if((bit <48>) standard_metadata.egress_global_timestamp - meta.timestamp_buffered_packet  > 4){
+            }else if((bit <48>) standard_metadata.egress_global_timestamp - meta.timestamp_buffered_packet  > 4){
                 meta.mark_to_ack = 20;
-                clone_packet();
+                dbg_retransmission.read(meta.dbg_meta, 0);
+                dbg_retransmission.write(0, meta.dbg_meta+1);
                 hdr.resist.type = PKT_FROM_MASTER_TO_REPLICA;
+                clone_packet();
+                dbg_retranmist_round.write(0, hdr.resist.round);
                 //TODO: clone packet to keep being buffered: is this creating double acks? original is clone, copy will be forwarded to replica
             }else{
                 recirculate_packet();
             }
-        }
-        else if(standard_metadata.instance_type == PKT_INSTANCE_TYPE_EGRESS_CLONE && hdr.resist.type==PKT_APP_ACK){
+        }else if(standard_metadata.instance_type == PKT_INSTANCE_TYPE_EGRESS_CLONE && hdr.resist.type==PKT_APP_ACK){
             /*this packet will be used to recover from packet losses*/
             /*the packet has all the initial resist headers*/
             /*set flag to notify that it will be waiting*/
+            bounce_pkt();
             compute_hashes();
+            dbg_buffered.read(meta.dbg_meta, 0);
+            dbg_buffered.write(0, meta.dbg_meta+1);
+            causality_violation.write(0, meta.causality_v_counter+1);
             /*packet is waiting*/
             acknowledge_state.write(meta.hashed_round, (bit <48>) standard_metadata.egress_global_timestamp);
             hdr.resist.type = PKT_BUFFERED;    //change header to identify it is waiting

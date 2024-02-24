@@ -50,7 +50,7 @@ def main():
                 if(random_variable > 0.2):
                     shim.app_interface_send(nodes[node_id], nodes[pid], input='x')
                     print("%d -> %d" %( pid, node_id ))
-                    x = input()
+                    #x = input() #isso aqui e pra debug
 
 
 if __name__ == '__main__':

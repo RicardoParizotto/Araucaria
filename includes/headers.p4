@@ -30,6 +30,12 @@ const bit<8> RECIRC_FL_1 = 3;
 #define PKT_UNORDERED 21
 #define PKT_APP_ACK 22
 #define PKT_REPLAY_STRONG_EVENTUAL 66
+
+
+#define PKT_NEW_SWITCH_ROUND 80
+#define PKT_NEW_SWITCH_ROUND_ACK 81
+#define PKT_LAST_REPLAY_ROUND_ACK 82
+
 #define PKT_BUFFERED 70
 #define PKT_ACK_MAIN_SWITCH 71
 
@@ -66,6 +72,7 @@ header ipv4_t {
 #include "modules/Resist/header"
 
 struct metadata {
+    bit<32> dbg_meta;
     @field_list(CLONE_FL_1)
     bit<32> mark_to_ack;
     bit<48> timestamp_buffered_packet;
