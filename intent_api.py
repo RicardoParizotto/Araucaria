@@ -7,7 +7,7 @@ import numpy as np
 from arauc_parser import *
 from run import *
 
-plt.rcParams["font.family"] = "Arial"
+plt.rcParams['font.family'] = 'sans-serif'
 
 #this is the database content
 
@@ -88,7 +88,7 @@ def first_analysis():
 
     fig,ax = plt.subplots(figsize=(6, 3))
 
-    plt.errorbar(range(0,1000, 100), average, yerr=std, linestyle = 'dashed', color='gray',capsize=5, linewidth=2)
+    plt.errorbar(range(0,1000, 100), average, yerr=std, linestyle = 'dashed', color='mediumblue',capsize=5, linewidth=2)
 
     plt.xticks(fontsize = 16)
     plt.yticks(fontsize = 16)
