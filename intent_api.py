@@ -11,7 +11,7 @@ plt.rcParams['font.family'] = 'sans-serif'
 
 #this is the database content
 
-functionality_base = {"@teste": {"backend": "python3 run.py", "input": "@size", "input_type": "int"}}
+functionality_base = {"@synchronization": {"backend": "python3 run.py", "input": "@size", "input_type": "int"}}
 intent = {}
 
 intent_list = {}
@@ -20,7 +20,7 @@ intent_list = {}
 
 gpt = "create intent @machine { functionality : @model [], availability: high, priority high }"
 
-s = "create intent @intentname { functionality : @teste [ @size : &3 ], consistency: strong, priority high }"
+s = "create intent @intentname { functionality : @synchronization [ @size : &3 ], consistency: strong, priority high }"
 
 
 def conflict_detection():
@@ -105,30 +105,30 @@ def first_analysis():
 
     plt.show()
 
-first_analysis()
+#first_analysis()
 
-#if __name__ == "__main__":
-#    t = time.process_time()   #benchmark purposes
+if __name__ == "__main__":
+    t = time.process_time()   #benchmark purposes
 
-#    while(True):
-#        try:
-#            string = input()
-#        except EOFError:
-#            break
+    while(True):
+        try:
+            string = input()
+        except EOFError:
+            break
 
-#        parser_result = parser.parse(string)
-#        print(parser_result)
-#        semantics_result = semantic_analysis(parser_result)
-#        if semantics_result == "passed":
-#            commit_intent(parser_result)
-#        else:
-#            print(semantics_result)
-#
-#        if(string == 'exit()'):
-#            break
+        parser_result = parser.parse(string)
+        print(parser_result)
+        semantics_result = semantic_analysis(parser_result)
+        if semantics_result == "passed":
+            commit_intent(parser_result)
+        else:
+            print(semantics_result)
+
+        if(string == 'exit()'):
+            break
 
     #------benckmark---purposes--------------------
-#    elapsed_time = time.process_time() - t
+    elapsed_time = time.process_time() - t
 
 #    file = open("results", "a")
 #    input_size = int(sys.argv[1])
